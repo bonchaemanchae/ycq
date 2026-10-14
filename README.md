@@ -19,17 +19,43 @@ etl/                 setup_db.py, load_zones.py, import_month.py,
                      build_aggregates.py, load_mongo.py, reconcile.py
 ```
 
-## Setup
+## Setup on a new machine
 
-Needs Docker Desktop and Python 3.12+ (a normal CPython install; MSYS2/MinGW
-Python can't install the Polars/psycopg wheels).
+### 1. Install the tools (once per machine)
+
+**Docker Desktop** runs both databases, so nobody installs PostgreSQL or MongoDB
+by hand.
+
+- Windows: open PowerShell as administrator and run `wsl --install`, restart,
+  then run `winget install -e --id Docker.DockerDesktop`. Open Docker Desktop
+  and wait until the bottom-left says "Engine running".
+- macOS: install Docker Desktop from docker.com (pick Apple chip or Intel).
+
+Check it works: `docker run hello-world`.
+
+**Python 3.12 or newer** from python.org (Windows: `winget install -e --id
+Python.Python.3.12`). Don't use the MSYS2/MinGW Python; it can't install the
+Polars/psycopg wheels. On Windows, `py -0p` lists the Pythons you have.
+
+**Git** (Windows: `winget install -e --id Git.Git`).
+
+### 2. Get the code and start the databases
 
 ```bash
+git clone <repo url> ycq
+cd ycq
 cp .env.example .env            # then change the passwords
-docker compose up -d
-python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt     # .venv/bin/pip on macOS/Linux
+docker compose up -d            # first run downloads the images (~1 GB)
+py -3.12 -m venv .venv          # macOS/Linux: python3 -m venv .venv
+.venv/Scripts/pip install -r requirements.txt     # macOS/Linux: .venv/bin/pip
 ```
+
+`data/` is not in git, so a fresh clone has no data until you run the steps
+below. Each machine has its own databases, so every teammate loads the data
+once (about 5 minutes per month).
+
+Tip: keep the project folder outside OneDrive/iCloud. The `.venv` folder and
+the parquet files are large and sync badly.
 
 ## Loading a month
 
@@ -81,21 +107,30 @@ Accepted trips can carry warnings in `trip_warning` (one row per warning):
 Fare statistics only use metered trips (payment type not 0 / Flex Fare) with a
 fare above zero. Rate code 99 is stored as NULL.
 
-## January 2026 results
+## Results (January to March 2026)
 
-| | |
-|---|---|
-| Rows read | 3,724,889 |
-| Accepted | 3,683,870 |
-| Rejected | 41,019 (R2 1, R3 7, R4 5,928, R6 35, R7 35,048) |
-| Trips with warnings | 191,613 (W1 122,233, W2 6,353, W3 153, W4 47, W5 1,270, W6 18,807, W8 44,717) |
-| zone_hour_observation rows | 195,672 (263 zones x 744 hours) |
-| od_summary | 175,981 rows, 3,665,063 trips |
-| MongoDB | 195,672 hourly docs, 2,478 OD snapshots |
-| Reconciliation | passed (pickups 3,683,870, drop-offs 3,662,813) |
+| | January | February | March |
+|---|---:|---:|---:|
+| Rows read | 3,724,889 | 3,399,866 | 3,952,451 |
+| Accepted | 3,683,870 | 3,371,085 | 3,927,859 |
+| Rejected | 41,019 | 28,781 | 24,592 |
+| &nbsp;&nbsp;R2 / R3 / R4 / R6 | 1 / 7 / 5,928 / 35 | 2 / 16 / 5,021 / 37 | 2 / 19 / 6,249 / 28 |
+| &nbsp;&nbsp;R7 reversals | 35,048 | 23,705 | 18,294 |
+| Trips with warnings | 191,613 | 182,215 | 188,862 |
+| &nbsp;&nbsp;W1 / W2 / W3 / W4 | 122,233 / 6,353 / 153 / 47 | 120,518 / 5,282 / 165 / 46 | 118,279 / 5,318 / 153 / 41 |
+| &nbsp;&nbsp;W5 / W6 / W8 | 1,270 / 18,807 / 44,717 | 1,072 / 16,530 / 40,416 | 777 / 17,405 / 48,646 |
+| zone_hour_observation rows | 195,672 (263 x 744) | 176,736 (263 x 672) | 195,409 (263 x 743, DST hour skipped) |
+| od_summary trips | 3,665,063 | 3,354,555 | 3,910,454 |
+| MongoDB OD snapshots | 2,478 | 2,483 | 2,491 |
+| Reconciliation | passed | passed | passed |
 
-Drop-offs are lower than OD trips because 2,250 January trips end on 1 February;
-those drop-offs belong to February's hourly grid.
+No month has W7 (payment type 6) rows. Drop-offs are counted in the hour they
+happen, so a trip that starts on the last evening of a month adds its drop-off
+to the next month's grid (2,250 January trips end on 1 February).
+
+January R7: 35,171 negative-fare rows have a positive twin. 123 of them were
+already rejected for another reason (121 R4, 1 R3, 1 R6), along with their
+twins, so 35,048 are recorded as R7. Every reversal is still rejected.
 
 ## Notes
 

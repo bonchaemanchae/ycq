@@ -18,6 +18,8 @@ DATA = Path(__file__).resolve().parent.parent / "data"
 # Known checksums (prefix is enough to catch a wrong or changed file).
 KNOWN_SHA256 = {
     "yellow_tripdata_2026-01.parquet": "8b3933fe6f0d7b6d",
+    "yellow_tripdata_2026-02.parquet": "5352ca800f29c40a",
+    "yellow_tripdata_2026-03.parquet": "d7af794a7ac06cbb",
 }
 
 
