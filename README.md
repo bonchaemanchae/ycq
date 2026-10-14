@@ -63,12 +63,22 @@ your counts must match the [results table](#results-january-to-march-2026).
   so re-running gives the same result.
 - Start completely fresh with `docker compose down -v`, then load again.
 
+## Tests
+
+With the containers running, run `pytest` from the repo root. The tests build
+separate `ycq_test` databases in the same containers, so your real data is
+never touched. They import small hand-made files with the real scripts, then
+check every import rule, the hourly grid (including the daylight-saving hour),
+rebuilds, the median fare table, the plan rules, and MongoDB's validators and
+reconciliation. A run takes under a minute.
+
 ## Repository layout
 
 ```
 sql/        schema, applied in number order by etl/setup_db.py
 etl/        setup_db, load_zones, import_month, build_aggregates, load_mongo, reconcile
 scripts/    download_data.py (TLC files + checksum check)
+tests/      pytest suite (uses its own ycq_test databases)
 data/       downloaded files (not in git)
 ```
 
