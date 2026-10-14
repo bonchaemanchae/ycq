@@ -47,7 +47,7 @@ def fetch(url: str, dest: Path) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--months", nargs="*", default=["2026-01"])
+    ap.add_argument("--months", "--month", nargs="*", default=["2026-01"])
     args = ap.parse_args()
 
     (DATA / "zones").mkdir(parents=True, exist_ok=True)
