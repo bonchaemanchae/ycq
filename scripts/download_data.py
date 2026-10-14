@@ -77,8 +77,14 @@ def main() -> int:
         expected = KNOWN_SHA256.get(name)
         status = ""
         if expected:
-            status = "OK" if digest.startswith(expected) else f"MISMATCH (expected {expected}...)"
-            ok &= digest.startswith(expected)
+            if digest.startswith(expected):
+                status = "OK"
+            else:
+                # Move it aside so import_month.py can't load the wrong file.
+                bad = dest.with_name(dest.name + ".mismatch")
+                dest.replace(bad)
+                status = f"MISMATCH (expected {expected}...), moved to {bad.name}"
+                ok = False
         print(f"  sha256 {digest} {status}")
     return 0 if ok else 1
 

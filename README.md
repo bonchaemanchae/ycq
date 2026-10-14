@@ -60,11 +60,14 @@ sql/                 schema, applied in number order by etl/setup_db.py
   006_plans.sql        allocation plans, versions, results, hourly-total trigger, v_plan_summary
   007_admin.sql        reconciliation_run, benchmark_run
   008_w9_...sql        W9 warning (drop-off time not recorded)
+  009_one_import_...   one import per month (unique file_month)
+  010_zone_weekday_... median metered fare per zone, weekday and hour (for the planner)
+  011_plan_hours_...   every hour of a saved plan version must add up to the fleet size
 etl/
   setup_db.py          applies sql/ (safe to re-run)
   load_zones.py        boroughs, zones and shapes
   import_month.py      imports one month
-  build_aggregates.py  hourly zone grid and origin-destination flows
+  build_aggregates.py  hourly zone grid, origin-destination flows, median fares
   load_mongo.py        copies a month's summaries into MongoDB
   reconcile.py         checks PostgreSQL and MongoDB agree
 data/                downloaded files (not in git)
@@ -146,12 +149,15 @@ counts should match the [results table](#results-january-to-march-2026) exactly.
 
 Good to know:
 
-- `download_data.py` checks each file's SHA-256 against the known value and
-  stops if a file differs.
+- `download_data.py` checks each file's SHA-256 against the known value. If a
+  file differs, it renames it to `.mismatch` (so it can't be imported) and stops.
 - `import_month.py` runs the whole import in one transaction and refuses a file
-  that was already imported (R5), so running it twice is harmless.
+  that was already imported, or any second file for a month that is already
+  loaded (R5), so running it twice is harmless.
 - `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
-  so running them again gives the same result.
+  so running them again gives the same result. `build_aggregates.py` also
+  rebuilds the median fare table from every loaded month, because medians
+  can't be added up month by month.
 - To start completely fresh: `docker compose down -v` (deletes both databases),
   then `docker compose up -d` and load again.
 
@@ -169,7 +175,7 @@ the order R1, R2, R3, R6, R4, R7):
 | R6 | Trip longer than 24 hours |
 | R4 | Pickup zone missing or has no map shape (zones 264, 265) |
 | R7 | Reversal: a negative fare with a positive twin (same vendor, pickup time, pickup zone, drop-off zone, opposite fare). Paired one to one; the original is kept |
-| R5 | Whole file already imported (the import stops and writes nothing) |
+| R5 | File refused: the same file, or another file for the same month, was already imported (the import stops and writes nothing) |
 
 Accepted trips can carry warnings in `trip_warning` (one row per warning). A
 warned trip stays in `trip` but is left out of the averages it would distort:
@@ -239,9 +245,9 @@ Fare trips have no distance recorded.
 |---|---|
 | `docker: command not found` or "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
 | `pip install` fails building polars or psycopg | You're on the wrong Python. Use `py -3.12` (Windows) and recreate `.venv` |
-| `R5: this file was already imported` | Nothing to do: that month is already in. Use `docker compose down -v` to start over |
+| `R5: this file was already imported` or `R5: 2026-01 was already imported` | Nothing to do: that month is already in. Use `docker compose down -v` to start over |
 | Port 5432 or 27017 already in use | Another PostgreSQL/MongoDB is running. Stop it, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
-| Checksum mismatch on download | Delete the file in `data/trips/` and download again; if it still differs, TLC changed the file, so tell the team |
+| Checksum mismatch on download | The file was renamed to `.mismatch`. Run the download again; if it still differs, TLC changed the file, so tell the team and don't import it |
 
 ## Notes on MongoDB
 

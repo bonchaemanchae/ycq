@@ -3,7 +3,8 @@
     python import_month.py --month 2026-01 [--file path/to.parquet]
 
 Steps, all in one transaction:
-  1. Refuse the file if its checksum was already imported (R5).
+  1. Refuse the file if it, or any file for the same month, was already
+     imported (R5).
   2. COPY the raw rows into the loose trip_staging table.
   3. Sort every row in SQL: rejected rows (R1-R4, R6, R7) go to rejected_trip,
      the rest go to the month's trip partition.
@@ -196,6 +197,19 @@ def main() -> int:
             print(
                 f"R5: this file was already imported as batch {dup[0]} "
                 f"(finished {dup[1]:%Y-%m-%d %H:%M}). Nothing to do.",
+                file=sys.stderr,
+            )
+            return 2
+        same_month = conn.execute(
+            "SELECT import_batch_id, source_file, checksum_sha256 FROM import_batch WHERE file_month = %s",
+            (start,),
+        ).fetchone()
+        if same_month:
+            print(
+                f"R5: {args.month} was already imported as batch {same_month[0]} from "
+                f"{same_month[1]} (sha256 {same_month[2][:16]}...), and this file is different "
+                f"(sha256 {checksum[:16]}...). Nothing was imported. If TLC republished the "
+                f"month, agree it with the team, then start fresh with docker compose down -v.",
                 file=sys.stderr,
             )
             return 2

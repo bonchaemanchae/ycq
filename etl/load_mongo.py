@@ -106,8 +106,8 @@ VIEWS_SCHEMA = {
                 "bsonType": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "dateFrom": {"bsonType": "string"},
-                    "dateTo": {"bsonType": "string"},
+                    "dateFrom": {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+                    "dateTo": {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
                     "weekdays": {"bsonType": "array", "items": {"bsonType": "int", "minimum": 1, "maximum": 7}},
                     "hourFrom": {"bsonType": "int", "minimum": 0, "maximum": 23},
                     "hourTo": {"bsonType": "int", "minimum": 0, "maximum": 23},

@@ -4,8 +4,9 @@
 
 Deletes and re-inserts that month's zone_hour_observation rows in one
 transaction (every zone with a map shape x every local hour of the month,
-zeros included), then refreshes the od_summary materialised view. Running it
-twice gives the same result.
+zeros included), then refreshes the od_summary and zone_weekday_hour_fare
+materialised views (both cover every loaded month). Running it twice gives the
+same result.
 """
 import argparse
 import time
@@ -113,6 +114,17 @@ def main() -> None:
             "SELECT count(*), sum(trips) FROM od_summary WHERE month = %s", (start,)
         ).fetchone()
         print(f"od_summary {args.month}: {rows[0]:,} rows, {rows[1]:,} trips "
+              f"({time.perf_counter() - t0:.1f}s)")
+
+        # Medians don't add up month by month, so this is rebuilt from every
+        # loaded month each time.
+        t0 = time.perf_counter()
+        conn.execute("REFRESH MATERIALIZED VIEW zone_weekday_hour_fare")
+        conn.execute("ANALYZE zone_weekday_hour_fare")
+        rows = conn.execute(
+            "SELECT count(*), sum(fare_trip_count) FROM zone_weekday_hour_fare"
+        ).fetchone()
+        print(f"zone_weekday_hour_fare (all months): {rows[0]:,} rows, {rows[1]:,} trips "
               f"({time.perf_counter() - t0:.1f}s)")
 
 
