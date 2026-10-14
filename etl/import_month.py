@@ -7,7 +7,7 @@ Steps, all in one transaction:
   2. COPY the raw rows into the loose trip_staging table.
   3. Sort every row in SQL: rejected rows (R1-R4, R6, R7) go to rejected_trip,
      the rest go to the month's trip partition.
-  4. Record warnings (W1-W8) for accepted trips in trip_warning.
+  4. Record warnings (W1-W9) for accepted trips in trip_warning.
 The month argument sets the partition and the R3 date range.
 """
 import argparse
@@ -146,8 +146,8 @@ CROSS JOIN LATERAL (VALUES
     ('W5', d.secs > 6 * 3600),
     ('W6', t.dropoff_location_id IS NULL OR dz.geom IS NULL),
     ('W7', t.payment_type_id = 6),
-    -- zero-second trips that still cover distance count as impossible speed
-    ('W8', t.trip_distance > 0 AND (d.secs = 0 OR t.trip_distance * 3600 / d.secs > 80))
+    ('W8', d.secs > 0 AND t.trip_distance * 3600 / d.secs > 80),
+    ('W9', d.secs = 0)
 ) AS w(code, hit)
 WHERE t.import_batch_id = %(batch)s
   AND t.pickup_ts >= %(start)s AND t.pickup_ts < %(end)s

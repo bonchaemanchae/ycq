@@ -2,7 +2,7 @@
 
 -- Which averages each trip may feed, from its warnings.
 --   W1, W3, W8 -> out of distance averages
---   W5, W8     -> out of duration averages
+--   W5, W8, W9 -> out of duration averages (W9 added in 008)
 --   W2, W4     -> out of fare statistics (fare stats also need a metered trip, fare > 0)
 --   W6         -> out of drop-off counts
 --   W7         -> out of every summary

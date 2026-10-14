@@ -1,8 +1,66 @@
-data/
+# --- Secrets -------------------------------------------------------------
+# Real passwords live only in .env. Commit .env.example instead.
 .env
+.env.*
+!.env.example
+
+# --- Data ----------------------------------------------------------------
+# Downloaded TLC files (hundreds of MB). Re-create with scripts/download_data.py.
+data/
+*.parquet
+*.zip
+*.shp
+*.shx
+*.dbf
+*.prj
+*.cpg
+# Database dumps and exports
+*.dump
+*.backup
+*.sql.gz
+*.bson
+
+# --- Python --------------------------------------------------------------
 .venv/
+venv/
+env/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Node / React (web/) -------------------------------------------------
 node_modules/
 dist/
+build/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+coverage/
+
+# --- Docker --------------------------------------------------------------
+docker-compose.override.yml
+
+# --- Editors and OS ------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Logs and scratch ----------------------------------------------------
+*.log
+logs/
+tmp/
