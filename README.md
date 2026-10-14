@@ -29,8 +29,8 @@ INF2003 Database Systems group project.
 | Relational database | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`) | Source of truth: every trip, zones and shapes, users, plans, import history |
 | NoSQL database | MongoDB 8.0 (`mongo:8.0`) | Fast hourly zone summaries, origin-destination snapshots, saved views |
 | Data pipeline | Python, Polars, psycopg, PyMongo | Download, validate and import TLC files, build summaries, reconcile |
-| Backend | FastAPI | *(next)* |
-| Frontend | React + Vite, React Leaflet, Recharts | *(next)* |
+| Backend | FastAPI, Pydantic, JWT login, Argon2 password hashing | Login and roles, reads from both databases, allocation planner, saves plans and views |
+| Frontend | React + Vite, React Leaflet, Recharts | Operations, Explore, Allocate and Admin pages with the zone map and charts |
 
 ```
 TLC files ──> import_month.py ──> PostgreSQL ──> build_aggregates.py ──> load_mongo.py ──> MongoDB
