@@ -1,133 +1,41 @@
 # Yellow Cab Query (YCQ)
 
-A web app for taxi fleet analysts, built on the official NYC Taxi and Limousine
-Commission (TLC) yellow taxi trip records for January to March 2026. Analysts
-see pickup and drop-off activity on a zone map, explore where passengers go,
-and build hourly plans for where to place a fleet of taxis.
-
-INF2003 Database Systems group project.
+A web app for taxi fleet analysts, built on the official NYC TLC yellow taxi
+trip records for January to March 2026. PostgreSQL + PostGIS is the source of
+truth for trips, zones, users and plans. MongoDB holds hourly zone summaries,
+origin-destination snapshots and saved views. INF2003 Database Systems group
+project.
 
 > YCQ uses historical completed-trip activity. Its allocation results are
 > planning scenarios and do not represent live taxi availability, unmet
 > passenger demand or guaranteed earnings.
 
-## Contents
+## Setup
 
-- [How it fits together](#how-it-fits-together)
-- [Repository layout](#repository-layout)
-- [Getting started](#getting-started)
-- [Loading the data](#loading-the-data)
-- [Import rules](#import-rules)
-- [Results](#results-january-to-march-2026)
-- [Working on the project](#working-on-the-project)
-- [Troubleshooting](#troubleshooting)
-
-## How it fits together
-
-| Part | Technology | Job |
-|---|---|---|
-| Relational database | PostgreSQL 16 + PostGIS (`postgis/postgis:16-3.4`) | Source of truth: every trip, zones and shapes, users, plans, import history |
-| NoSQL database | MongoDB 8.0 (`mongo:8.0`) | Fast hourly zone summaries, origin-destination snapshots, saved views |
-| Data pipeline | Python, Polars, psycopg, PyMongo | Download, validate and import TLC files, build summaries, reconcile |
-| Backend | FastAPI, Pydantic, JWT login, Argon2 password hashing | Login and roles, reads from both databases, allocation planner, saves plans and views |
-| Frontend | React + Vite, React Leaflet, Recharts | Operations, Explore, Allocate and Admin pages with the zone map and charts |
-
-```
-TLC files ──> import_month.py ──> PostgreSQL ──> build_aggregates.py ──> load_mongo.py ──> MongoDB
-               (sort rows into      trip,           zone_hour_observation,                  zone_activity_timeseries,
-                accepted/rejected,  rejected_trip,  od_summary                              origin_destination_snapshots
-                record warnings)    trip_warning
-                                                     reconcile.py checks both databases match
-```
-
-PostgreSQL is always right: MongoDB's summaries can be deleted and rebuilt from
-it at any time, one month at a time.
-
-## Repository layout
-
-```
-docker-compose.yml   PostgreSQL + PostGIS and MongoDB containers
-.env.example         copy to .env and set passwords (.env is never committed)
-requirements.txt     Python packages for the pipeline
-scripts/
-  download_data.py   fetches TLC trip files, zone lookup and shapefile; checks sha256
-sql/                 schema, applied in number order by etl/setup_db.py
-  001_zones.sql        borough, taxi_zone (PostGIS shapes)
-  002_lookups.sql      vendor, payment_type, rate_code, validation_code
-  003_users.sql        app_user, app_role, app_user_role
-  004_trips.sql        import_batch, trip_staging, trip (monthly partitions), trip_warning, rejected_trip
-  005_summaries.sql    zone_hour_observation, od_summary (materialised view)
-  006_plans.sql        allocation plans, versions, results, hourly-total trigger, v_plan_summary
-  007_admin.sql        reconciliation_run, benchmark_run
-  008_w9_...sql        W9 warning (drop-off time not recorded)
-  009_one_import_...   one import per month (unique file_month)
-  010_zone_weekday_... median metered fare per zone, weekday and hour (for the planner)
-  011_plan_hours_...   every hour of a saved plan version must add up to the fleet size
-etl/
-  setup_db.py          applies sql/ (safe to re-run)
-  load_zones.py        boroughs, zones and shapes
-  import_month.py      imports one month
-  build_aggregates.py  hourly zone grid, origin-destination flows, median fares
-  load_mongo.py        copies a month's summaries into MongoDB
-  reconcile.py         checks PostgreSQL and MongoDB agree
-data/                downloaded files (not in git)
-```
-
-## Getting started
-
-### 1. Install the tools (once per machine)
-
-| Tool | Windows | macOS |
-|---|---|---|
-| WSL (Docker needs it) | PowerShell **as administrator**: `wsl --install`, then restart | not needed |
-| Docker Desktop | `winget install -e --id Docker.DockerDesktop` | download from docker.com (Apple chip or Intel) |
-| Python 3.12+ | `winget install -e --id Python.Python.3.12` | `brew install python@3.12` or python.org |
-| Git | `winget install -e --id Git.Git` | `xcode-select --install` |
-
-Open Docker Desktop and wait until it says **Engine running**, then check:
-
-```bash
-docker run hello-world
-```
-
-On Windows, use the `py` launcher for Python. Other Pythons on the PATH (for
-example MSYS2/MinGW) can't install Polars or psycopg. `py -0p` lists what you have.
-
-### 2. Get the code and start the databases
+You need **Docker Desktop** (on Windows, run `wsl --install` in an admin
+PowerShell first and restart) and **Python 3.12+**. Open Docker Desktop and
+wait for **Engine running**.
 
 ```bash
 git clone https://github.com/bonchaemanchae/ycq.git
 cd ycq
-cp .env.example .env          # then open .env and set your own passwords
-docker compose up -d          # first run downloads the images (~1 GB)
+cp .env.example .env          # set your own passwords in .env
+docker compose up -d          # PostgreSQL + PostGIS and MongoDB
 ```
 
-`docker compose ps` should show both containers as `healthy`.
-
-### 3. Set up Python
-
-Windows (PowerShell):
-
-```powershell
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-macOS:
+Python environment:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+py -3.12 -m venv .venv        # Windows; macOS: python3 -m venv .venv
+.venv\Scripts\activate        # Windows; macOS: source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Keep the project folder **outside OneDrive, iCloud or Dropbox**. The data files
-and `.venv` are large, and syncing them can lock files mid-import.
+On Windows use the `py` launcher: other Pythons on the PATH (such as MSYS2)
+can't install Polars or psycopg. Keep the folder **outside OneDrive or
+iCloud**, because syncing the data files can lock them mid-import.
 
 ## Loading the data
-
-With the virtual environment active, from the repo root:
 
 ```bash
 python scripts/download_data.py --months 2026-01 2026-02 2026-03
@@ -135,7 +43,7 @@ python etl/setup_db.py
 python etl/load_zones.py
 ```
 
-Then for each month (`2026-01`, `2026-02`, `2026-03`):
+Then for each month, in order (`2026-01`, `2026-02`, `2026-03`):
 
 ```bash
 python etl/import_month.py     --month 2026-01
@@ -144,22 +52,25 @@ python etl/load_mongo.py       --month 2026-01
 python etl/reconcile.py        --month 2026-01
 ```
 
-Each month takes about 5 minutes. `reconcile.py` must print **PASSED**, and your
-counts should match the [results table](#results-january-to-march-2026) exactly.
+Each month takes about 5 minutes. `reconcile.py` must print **PASSED**, and
+your counts must match the [results table](#results-january-to-march-2026).
 
-Good to know:
-
-- `download_data.py` checks each file's SHA-256 against the known value. If a
-  file differs, it renames it to `.mismatch` (so it can't be imported) and stops.
-- `import_month.py` runs the whole import in one transaction and refuses a file
-  that was already imported, or any second file for a month that is already
-  loaded (R5), so running it twice is harmless.
+- Downloads are checked by SHA-256. A file that differs is renamed to
+  `.mismatch` so it can't be imported.
+- An import is one transaction. The same file, or a second file for a month
+  that's already loaded, is refused (R5), so re-running is harmless.
 - `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
-  so running them again gives the same result. `build_aggregates.py` also
-  rebuilds the median fare table from every loaded month, because medians
-  can't be added up month by month.
-- To start completely fresh: `docker compose down -v` (deletes both databases),
-  then `docker compose up -d` and load again.
+  so re-running gives the same result.
+- Start completely fresh with `docker compose down -v`, then load again.
+
+## Repository layout
+
+```
+sql/        schema, applied in number order by etl/setup_db.py
+etl/        setup_db, load_zones, import_month, build_aggregates, load_mongo, reconcile
+scripts/    download_data.py (TLC files + checksum check)
+data/       downloaded files (not in git)
+```
 
 ## Import rules
 
@@ -218,7 +129,7 @@ Official TLC files, checked by SHA-256 (first 16 characters):
 | MongoDB OD snapshots | 2,478 | 2,483 | 2,491 |
 | Reconciliation | passed | passed | passed |
 
-No month has voided trips (W7). In January, 35,171 negative-fare rows have a
+After all three months, `zone_weekday_hour_fare` (the planner's median fares) has 34,521 rows built from 7,911,745 metered trips. No month has voided trips (W7). In January, 35,171 negative-fare rows have a
 positive twin; 123 of them already fail an earlier rule (121 R4, 1 R3, 1 R6),
 so 35,048 are recorded as R7 and every reversal is still rejected. Drop-offs are
 counted in the hour they happen, so 2,250 January trips add their drop-off to
@@ -230,31 +141,22 @@ Fare trips have no distance recorded.
 
 ## Working on the project
 
-- `main` always runs. Work on a branch named after the feature
-  (`feature/saved-views`) and merge through a pull request that one other member
-  reviews.
-- Commit messages say what changed in plain words, e.g. "Add W9 warning for
-  missing drop-off times".
-- Schema changes go in a **new** numbered file in `sql/` (e.g. `009_...sql`),
-  never as edits to a file other people have already run.
-- Secrets stay in `.env`. Never commit `.env` or anything in `data/`.
+- `main` always runs. Work on a feature branch (`feature/saved-views`) and
+  merge through a pull request one other member reviews.
+- Schema changes go in a **new** numbered `sql/` file, never an edit to one
+  already in `main`.
+- Never commit `.env` or anything in `data/`.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
-| `docker: command not found` or "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
-| `pip install` fails building polars or psycopg | You're on the wrong Python. Use `py -3.12` (Windows) and recreate `.venv` |
-| `R5: this file was already imported` or `R5: 2026-01 was already imported` | Nothing to do: that month is already in. Use `docker compose down -v` to start over |
-| Port 5432 or 27017 already in use | Another PostgreSQL/MongoDB is running. Stop it, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
-| Checksum mismatch on download | The file was renamed to `.mismatch`. Run the download again; if it still differs, TLC changed the file, so tell the team and don't import it |
+| "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
+| `pip install` fails on polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
+| `R5: ... already imported` | That month is already in. `docker compose down -v` to start over |
+| Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
+| Checksum mismatch | Download again. If it still differs, TLC changed the file: tell the team and don't import it |
 
-## Notes on MongoDB
-
-- MongoDB 8.0 doesn't allow `$jsonSchema` validators on time-series
-  collections. `origin_destination_snapshots` and `saved_analysis_views` have
-  real validators. For `zone_activity_timeseries`, the loader checks every
-  document against the same schema after each load and removes the month if any
-  fail.
-- Time-series collections only accept updates that filter on the `meta` field.
-  Deletes accept any filter, which is what the monthly rebuild uses.
+MongoDB 8.0 doesn't allow `$jsonSchema` validators on time-series collections,
+so the loader checks every hourly document itself and removes the month if any
+fail. Saved views only live in MongoDB, so back them up with `mongodump`.
