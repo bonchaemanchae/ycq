@@ -1,0 +1,16 @@
+body { margin: 0; font-family: system-ui, sans-serif; color: #222; }
+header { display: flex; gap: 24px; align-items: center; padding: 12px 20px; background: #f7c600; }
+nav { display: flex; gap: 16px; }
+nav a { color: #222; text-decoration: none; }
+nav a.active { font-weight: bold; text-decoration: underline; }
+main { padding: 16px 20px; }
+.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 12px; }
+.row input[type="number"] { width: 70px; }
+.message { color: #a40000; }
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.map { height: 520px; width: 100%; }
+table { border-collapse: collapse; font-size: 14px; width: 100%; }
+th, td { border-bottom: 1px solid #ddd; padding: 4px 6px; text-align: left; }
+button.active { font-weight: bold; }
+.status { margin-left: auto; font-size: 13px; }
+.example { background: #f4f4f4; padding: 8px; max-height: 200px; overflow: auto; font-size: 13px; }

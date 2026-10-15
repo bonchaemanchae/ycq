@@ -1,0 +1,34 @@
+# Dev mode: edit api/ or web/, save, and the change shows at once. No rebuilds.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# The api container runs FastAPI with --reload on your api/ folder, and the web
+# container runs the Vite dev server on your web/ folder instead of nginx.
+# Same URLs as normal: http://localhost:8080 and http://localhost:8000/docs.
+# Polling is on because file changes made on Windows don't always reach the
+# containers otherwise.
+
+services:
+  api:
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./api:/app/api
+
+  web:
+    build: !reset null
+    image: node:22-alpine
+    working_dir: /web
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 80"
+    environment:
+      API_URL: http://api:8000
+      VITE_POLLING: "1"
+    volumes:
+      - ./web:/web
+      # Linux packages live in their own volume, separate from any Windows
+      # node_modules in your web/ folder.
+      - web_node_modules:/web/node_modules
+
+volumes:
+  web_node_modules:

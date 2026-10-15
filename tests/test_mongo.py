@@ -40,7 +40,7 @@ def test_tampered_document_is_detected(mongo):
 
 def saved_view(**overrides):
     now = datetime.now(timezone.utc)
-    view = {"ownerUserId": 1, "name": "Morning peak", "page": "explore",
+    view = {"ownerUserId": 1, "name": "Morning peak", "page": "flows",
             "filters": {"dateFrom": "2026-01-01", "dateTo": "2026-01-31",
                         "hourFrom": 6, "hourTo": 10, "zoneIds": [1, 2]},
             "createdAt": now, "updatedAt": now}

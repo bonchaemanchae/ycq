@@ -18,8 +18,6 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # zone shapefile is loaded with shp2pgsql from inside the container
-      - ./data:/data:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ycq} -d ${POSTGRES_DB:-ycq}"]
       interval: 5s
@@ -40,6 +38,59 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Loads everything once: downloads the TLC files into ./data, applies the
+  # schema, loads zones and imports each month, then exits. On later starts it
+  # sees the months are already loaded and exits within seconds.
+  # YCQ_MONTHS in .env picks the months (default: all three).
+  loader:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    environment: &db_env
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-ycq}
+      POSTGRES_USER: ${POSTGRES_USER:-ycq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MONGO_HOST: mongo
+      MONGO_PORT: "27017"
+      MONGO_DB: ${MONGO_DB:-ycq}
+      MONGO_USER: ${MONGO_USER:-ycq}
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
+      YCQ_MONTHS: ${YCQ_MONTHS:-2026-01 2026-02 2026-03}
+      YCQ_DOWNLOAD: ${YCQ_DOWNLOAD:-1}
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+
+  # FastAPI backend: http://localhost:8000/docs
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    environment:
+      <<: *db_env
+      JWT_SECRET: ${JWT_SECRET:-change-me}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      loader:
+        condition: service_completed_successfully
+
+  # React app: http://localhost:8080 (forwards /api to the api service)
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
 
 volumes:
   pgdata:

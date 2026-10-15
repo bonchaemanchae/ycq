@@ -46,6 +46,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 coverage/
+*.tsbuildinfo
 
 # --- Docker --------------------------------------------------------------
 docker-compose.override.yml

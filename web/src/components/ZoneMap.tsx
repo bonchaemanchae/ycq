@@ -1,0 +1,51 @@
+import type { Feature, FeatureCollection } from "geojson";
+import type { Layer, PathOptions } from "leaflet";
+import { useEffect, useState } from "react";
+import { GeoJSON, MapContainer, TileLayer } from "react-leaflet";
+import { api } from "../api";
+
+type Props = {
+  // value per location_id; zones without a value are drawn grey
+  values?: Record<number, number>;
+  label?: string;
+  onZoneClick?: (locationId: number) => void;
+};
+
+// NYC taxi zone map shared by every page. Colour zones by passing values.
+export default function ZoneMap({ values = {}, label = "value", onZoneClick }: Props) {
+  const [zones, setZones] = useState<FeatureCollection | null>(null);
+  useEffect(() => {
+    api<FeatureCollection>("/zones/geojson").then(setZones).catch(console.error);
+  }, []);
+
+  const max = Math.max(1, ...Object.values(values));
+  const style = (f?: Feature): PathOptions => {
+    const v = values[f?.properties?.location_id];
+    return {
+      weight: 0.5,
+      color: "#555",
+      fillColor: v === undefined ? "#ccc" : `rgba(230, 160, 0, ${0.15 + 0.85 * (v / max)})`,
+      fillOpacity: 0.8,
+    };
+  };
+  const onEach = (f: Feature, layer: Layer) => {
+    const id = f.properties?.location_id;
+    const v = values[id];
+    layer.bindTooltip(`${f.properties?.zone_name} (${f.properties?.borough})` +
+      (v === undefined ? "" : `<br>${label}: ${v}`));
+    if (onZoneClick) layer.on("click", () => onZoneClick(id));
+  };
+
+  return (
+    <MapContainer center={[40.73, -73.94]} zoom={11} className="map">
+      <TileLayer
+        attribution="&copy; OpenStreetMap contributors"
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+      {zones && (
+        // key forces a redraw when the values change
+        <GeoJSON key={JSON.stringify(values)} data={zones} style={style} onEachFeature={onEach} />
+      )}
+    </MapContainer>
+  );
+}

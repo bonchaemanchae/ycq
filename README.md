@@ -3,57 +3,249 @@
 A web app for taxi fleet analysts, built on the official NYC TLC yellow taxi
 trip records for January to March 2026. PostgreSQL + PostGIS is the source of
 truth for trips, zones, users and plans. MongoDB holds hourly zone summaries,
-origin-destination snapshots and saved views. INF2003 Database Systems group
-project.
+origin-destination snapshots and saved views. React website, FastAPI backend.
+INF2003 Database Systems group project (team 24).
 
 > YCQ uses historical completed-trip activity. Its allocation results are
 > planning scenarios and do not represent live taxi availability, unmet
 > passenger demand or guaranteed earnings.
 
-## Setup
+## First-time setup
 
-You need **Docker Desktop** (on Windows, run `wsl --install` in an admin
-PowerShell first and restart) and **Python 3.12+**. Open Docker Desktop and
-wait for **Engine running**.
+You only need **Docker Desktop**. On Windows, first run `wsl --install` in a
+PowerShell opened **as administrator** and restart. Open Docker Desktop and
+wait for **Engine running**. Keep the project **outside OneDrive or iCloud**,
+because syncing the data files can lock them mid-import.
+
+Run these in a terminal (in VS Code: **Terminal → New Terminal**):
 
 ```bash
 git clone https://github.com/bonchaemanchae/ycq.git
 cd ycq
-cp .env.example .env          # set your own passwords in .env
-docker compose up -d          # PostgreSQL + PostGIS and MongoDB
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-Python environment:
+Open `.env`, replace both `change-me` passwords with your own, and save. Then:
 
 ```bash
-py -3.12 -m venv .venv        # Windows; macOS: python3 -m venv .venv
-.venv\Scripts\activate        # Windows; macOS: source .venv/bin/activate
-pip install -r requirements.txt
+docker compose up -d --build      # build the images and start everything
+docker compose logs -f loader     # watch the data load (Ctrl+C stops watching, not loading)
 ```
 
-On Windows use the `py` launcher: other Pythons on the PATH (such as MSYS2)
-can't install Polars or psycopg. Keep the folder **outside OneDrive or
-iCloud**, because syncing the data files can lock them mid-import.
+The first start downloads and imports the data: about **5 minutes per month**.
+The website only comes up once the loader prints `all loaded: ...`. For a
+quicker first try, set `YCQ_MONTHS=2026-01` in `.env`. Then open:
 
-## Loading the data
+- **http://localhost:8080**, the website. The header should read
+  *PostgreSQL up · MongoDB up · months: 2026-01, ...*
+- **http://localhost:8000/docs**, the API, where you can try every route.
+
+All `docker compose` commands must be run from the folder that contains
+`docker-compose.yml`.
+
+## What runs
+
+`docker compose up` starts five containers:
+
+| Service | What it is | Where |
+|---|---|---|
+| `postgres` | PostgreSQL 16 + PostGIS | `localhost:5432` |
+| `mongo` | MongoDB 8.0 | `localhost:27017` |
+| `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
+| `api` | FastAPI backend | http://localhost:8000/docs |
+| `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
+
+The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
+`docker compose down` and restarts. Only `docker compose down -v` deletes it.
+
+## Everyday commands
+
+| To | Run |
+|---|---|
+| Start (normal mode) | `docker compose up -d` |
+| Start in dev mode (while coding) | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` |
+| Stop (data is kept) | `docker compose down` |
+| Rebuild after code changes (normal mode) | `docker compose up -d --build` |
+| See what's running | `docker compose ps -a` |
+| See a container's output or errors | `docker compose logs api` (or `web`, `loader`, `postgres`, `mongo`) |
+| Restart one container | `docker compose restart api` |
+| Run the tests | `docker compose run --rm loader pytest tests` |
+| Delete all data and start over | `docker compose down -v`, then `docker compose up -d --build` |
+
+### Normal mode and dev mode
+
+- **Normal mode** (`docker-compose.yml`) is the finished app. Each image holds
+  a copy of the code taken at build time, and the website is compiled and
+  type-checked. This is what gets demoed and marked. After changing code you
+  must rebuild (`--build`) to see it.
+- **Dev mode** (`docker-compose.dev.yml`, added on top) is for writing code.
+  The `api` and `web` containers read your `api/` and `web/` folders directly:
+  save a file and the website updates itself, and the API restarts in a second
+  or two. No rebuilds. The first start takes a minute longer while it installs
+  the website's packages.
+
+Work in dev mode. Before you push, switch to normal mode once with
+`docker compose up -d --build` and click through your page, because dev mode
+skips the TypeScript check that the real build runs. You can switch between
+the modes any time; the data stays.
+
+To avoid typing the long dev command, add this line to your `.env` and every
+plain `docker compose` command uses dev mode (comment it out with `#` to go
+back). On macOS or Linux use `:` instead of `;`.
+
+```
+COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
+```
+
+### What to do after a change
+
+| You changed | Dev mode | Normal mode |
+|---|---|---|
+| `web/src/` (pages, components) | Nothing, it updates on save | `docker compose up -d --build web` |
+| `api/` (routes, planner) | Nothing, it restarts on save; refresh the page | `docker compose up -d --build api` |
+| `web/package.json` (new npm package) | `docker compose restart web` | `docker compose up -d --build web` |
+| `requirements.txt` (new Python package) | Add `--build api loader` to your start command | `docker compose up -d --build api loader` |
+| A new `sql/` file, or `etl/`, `scripts/` | See [Working with the database](#working-with-the-database) | same |
+| `.env` or `docker-compose*.yml` | Run your start command again | `docker compose up -d` |
+| `README.md` | Nothing | Nothing |
+
+After a `git pull`, run `docker compose up -d --build` if you're unsure what
+changed.
+
+## Adding your part
+
+Each feature from the report has one backend file and one page:
+
+| Feature (owner) | Backend (FastAPI) | Website (React) | URL |
+|---|---|---|---|
+| Activity Dashboard (Kessler) | `api/routers/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard` |
+| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/Flows.tsx` | `/flows` |
+| Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner` |
+| Saved Views (Caleb) | `api/routers/saved_views.py` | save and open buttons on the Dashboard and Flow pages | — |
+| Users and Security (Arif) | `api/auth.py` (replace `current_user`) | a new login page | — |
+| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin` |
+
+The Dashboard, Flow Explorer and Administration pages call an `/example` route
+and print its JSON, to show the whole path works (page → API → database).
+Replace both with your real work.
+
+**Backend.** Add routes to your router file. A route `@router.get("/busiest")`
+in `dashboard.py` is served at http://localhost:8000/dashboard/busiest. Get
+PostgreSQL with `conn=Depends(get_pg)`, MongoDB with `mongo()` (both from
+`api/db.py`), and the logged-in user with `user: User = Depends(current_user)`.
+Until login is built, every request is the dev user `dev@ycq.local`. Every
+route shows up at http://localhost:8000/docs where you can try it. A brand-new
+router file has to be added to `ROUTERS` in `api/main.py`.
+
+**Website.** Call the backend through `web/src/api.ts` and leave off the `/api`
+prefix: `api<MyType>("/dashboard/busiest")` or `post("/plans", body)`. The
+shared map is `web/src/components/ZoneMap.tsx`; pass
+`values={{ [location_id]: number }}` to colour zones. A brand-new page has to
+be added to `PAGES` in `web/src/App.tsx` to get a tab.
+
+## Working with the database
+
+### See what's loaded
+
+- **Website:** the header lists the loaded months, and the Administration page
+  shows rows read, accepted and rejected per month.
+- **Loader output:** `docker compose logs loader` shows each month's counts and
+  whether reconciliation **PASSED**.
+- **PostgreSQL shell**, no password needed:
+
+  ```bash
+  docker compose exec postgres psql -U ycq -d ycq
+  ```
+
+  Useful queries: `\dt` (tables), `\d trip` (one table's columns),
+  `SELECT file_month, rows_read, rows_accepted, rows_rejected FROM import_batch;`,
+  `SELECT reason_code, count(*) FROM rejected_trip GROUP BY 1;`. Quit with `\q`.
+
+- **MongoDB shell:**
+
+  ```bash
+  docker compose exec mongo sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin ycq'
+  ```
+
+  Useful commands: `show collections`,
+  `db.zone_activity_timeseries.findOne()`,
+  `db.origin_destination_snapshots.countDocuments()`. Quit with `exit`.
+
+- **With a GUI:** DBeaver or pgAdmin at `localhost:5432` (database `ycq`), and
+  MongoDB Compass with
+  `mongodb://ycq:<MONGO_PASSWORD>@localhost:27017/?authSource=admin`. The users
+  and passwords are the ones in your `.env`.
+
+### Change the schema
+
+Add a **new** numbered file in `sql/` (for example `012_my_table.sql`). Never
+edit one that is already in `main`. Every file is applied again on each
+loader run, so write it to be safe to re-run (`CREATE TABLE IF NOT EXISTS`,
+`CREATE OR REPLACE VIEW`, and so on). Then apply it:
+
+```bash
+docker compose up -d --build loader
+```
+
+Your loaded data stays. Check the loader log for errors.
+
+### Change the MongoDB validators or indexes
+
+Edit `ensure_collections` in `etl/load_mongo.py`, then run
+`docker compose up -d --build loader`. The loader re-applies them on every
+run.
+
+### Add another month
+
+Add it to `YCQ_MONTHS` in `.env` (for example
+`YCQ_MONTHS=2026-01 2026-02 2026-03 2026-04`) and run `docker compose up -d`.
+The loader downloads and imports only the new month and refreshes the
+planner's median fares. Then add its checksum to `KNOWN_SHA256` in
+`scripts/download_data.py` and its counts to the results table below.
+
+### Change the import rules or summaries
+
+A month can only be imported once (rule R5), so a change to
+`etl/import_month.py` only shows after a fresh load:
+
+```bash
+docker compose down -v            # deletes ALL data: trips, users, plans, saved views
+docker compose up -d --build
+```
+
+Try it on one month first (`YCQ_MONTHS=2026-01`), and run the tests. A change to
+`build_aggregates.py` or `load_mongo.py` doesn't need a fresh load. Those
+scripts delete a month before rebuilding it, so you can rerun them per month:
+
+```bash
+docker compose build loader
+docker compose run --rm loader python etl/build_aggregates.py --month 2026-01
+docker compose run --rm loader python etl/load_mongo.py --month 2026-01
+docker compose run --rm loader python etl/reconcile.py --month 2026-01
+```
+
+`docker compose run --rm loader python <script>` runs any ETL script without
+installing Python yourself.
+
+### Load the data step by step
+
+This is what the loader does, one step at a time. Use it to run a single step
+(prefix each line with `docker compose run --rm loader`, or run it in a local
+`.venv`; see [Without Docker](#without-docker)):
 
 ```bash
 python scripts/download_data.py --months 2026-01 2026-02 2026-03
 python etl/setup_db.py
 python etl/load_zones.py
-```
-
-Then for each month, in order (`2026-01`, `2026-02`, `2026-03`):
-
-```bash
+# then for each month, in order:
 python etl/import_month.py     --month 2026-01
 python etl/build_aggregates.py --month 2026-01
 python etl/load_mongo.py       --month 2026-01
 python etl/reconcile.py        --month 2026-01
 ```
 
-Each month takes about 5 minutes. `reconcile.py` must print **PASSED**, and
-your counts must match the [results table](#results-january-to-march-2026).
+`reconcile.py` must print **PASSED**, and the counts must match the
+[results table](#results-january-to-march-2026).
 
 - Downloads are checked by SHA-256. A file that differs is renamed to
   `.mismatch` so it can't be imported.
@@ -61,26 +253,55 @@ your counts must match the [results table](#results-january-to-march-2026).
   that's already loaded, is refused (R5), so re-running is harmless.
 - `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
   so re-running gives the same result.
-- Start completely fresh with `docker compose down -v`, then load again.
 
 ## Tests
 
-With the containers running, run `pytest` from the repo root. The tests build
-separate `ycq_test` databases in the same containers, so your real data is
-never touched. They import small hand-made files with the real scripts, then
-check every import rule, the hourly grid (including the daylight-saving hour),
-rebuilds, the median fare table, the plan rules, and MongoDB's validators and
-reconciliation. A run takes under a minute.
+```bash
+docker compose build loader          # picks up changed tests
+docker compose run --rm loader pytest tests
+```
+
+The tests build separate `ycq_test` databases in the same containers, so your
+real data is never touched. They import small hand-made files with the real
+scripts, then check every import rule, the hourly grid (including the
+daylight-saving hour), rebuilds, the median fare table, the plan rules, and
+MongoDB's validators and reconciliation. A run takes under a minute.
+
+## Without Docker
+
+Only needed if you want to run the Python or the website on your own machine.
+You need **Python 3.12** and **Node.js 22**. The databases still run in Docker.
+
+```bash
+py -3.12 -m venv .venv        # Windows; macOS: python3 -m venv .venv
+.venv\Scripts\activate        # Windows; macOS: source .venv/bin/activate
+pip install -r requirements.txt
+docker compose stop api web                 # frees ports 8000 and 8080
+uvicorn api.main:app --reload               # terminal 1, repo root
+cd web && npm install && npm run dev        # terminal 2: http://localhost:5173
+```
+
+On Windows use the `py` launcher: other Pythons on the PATH (such as MSYS2)
+can't install Polars or psycopg. `.env` already points at `localhost`, which is
+right for this setup. `pytest` from the repo root runs the tests.
 
 ## Repository layout
 
 ```
+api/        FastAPI backend: main.py, db.py, auth.py, planner.py, routers/ (one per feature)
+web/        React + TypeScript (Vite) website: src/pages/ (one per feature), src/components/
 sql/        schema, applied in number order by etl/setup_db.py
-etl/        setup_db, load_zones, import_month, build_aggregates, load_mongo, reconcile
+etl/        load_all (what the loader container runs), setup_db, load_zones,
+            import_month, build_aggregates, load_mongo, reconcile
 scripts/    download_data.py (TLC files + checksum check)
 tests/      pytest suite (uses its own ycq_test databases)
 data/       downloaded files (not in git)
+docker-compose.yml       normal mode
+docker-compose.dev.yml   dev mode, added on top of the normal file
 ```
+
+One `requirements.txt` covers the API, the ETL and the tests; the `api` and
+`loader` images both install it.
 
 ## Import rules
 
@@ -139,11 +360,12 @@ Official TLC files, checked by SHA-256 (first 16 characters):
 | MongoDB OD snapshots | 2,478 | 2,483 | 2,491 |
 | Reconciliation | passed | passed | passed |
 
-After all three months, `zone_weekday_hour_fare` (the planner's median fares) has 34,521 rows built from 7,911,745 metered trips. No month has voided trips (W7). In January, 35,171 negative-fare rows have a
-positive twin; 123 of them already fail an earlier rule (121 R4, 1 R3, 1 R6),
-so 35,048 are recorded as R7 and every reversal is still rejected. Drop-offs are
-counted in the hour they happen, so 2,250 January trips add their drop-off to
-1 February.
+After all three months, `zone_weekday_hour_fare` (the planner's median fares)
+has 34,521 rows built from 7,911,745 metered trips. No month has voided trips
+(W7). In January, 35,171 negative-fare rows have a positive twin; 123 of them
+already fail an earlier rule (121 R4, 1 R3, 1 R6), so 35,048 are recorded as R7
+and every reversal is still rejected. Drop-offs are counted in the hour they
+happen, so 2,250 January trips add their drop-off to 1 February.
 
 Known data notes: 25–26 January and 22–23 February have very low volume
 because of two blizzards (real events, not missing data), and about 9% of Flex
@@ -153,6 +375,8 @@ Fare trips have no distance recorded.
 
 - `main` always runs. Work on a feature branch (`feature/saved-views`) and
   merge through a pull request one other member reviews.
+- Before opening a pull request, run `docker compose up -d --build` (normal
+  mode) and the tests.
 - Schema changes go in a **new** numbered `sql/` file, never an edit to one
   already in `main`.
 - Never commit `.env` or anything in `data/`.
@@ -162,10 +386,15 @@ Fare trips have no distance recorded.
 | Problem | Fix |
 |---|---|
 | "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
-| `pip install` fails on polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
-| `R5: ... already imported` | That month is already in. `docker compose down -v` to start over |
+| "no configuration file provided" | You're in the wrong folder. `cd` into the one with `docker-compose.yml` |
+| http://localhost:8080 doesn't open | `loader` is still running or failed: `docker compose logs loader` |
+| Website shows "Bad Gateway" or "backend not reachable" | The `api` container crashed: `docker compose logs api` shows why. Fix it, then `docker compose up -d --build api` |
+| My change doesn't show | Normal mode needs `--build`. In dev mode try `docker compose restart api` (or `web`) |
+| Port 8000 or 8080 in use | Change `API_PORT` / `WEB_PORT` in `.env` |
 | Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
+| `R5: ... already imported` | That month is already in. See [Change the import rules](#change-the-import-rules-or-summaries) |
 | Checksum mismatch | Download again. If it still differs, TLC changed the file: tell the team and don't import it |
+| `pip install` fails on polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
 
 MongoDB 8.0 doesn't allow `$jsonSchema` validators on time-series collections,
 so the loader checks every hourly document itself and removes the month if any

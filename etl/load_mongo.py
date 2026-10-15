@@ -101,7 +101,7 @@ VIEWS_SCHEMA = {
             "_id": {"bsonType": "objectId"},
             "ownerUserId": {"bsonType": "int"},
             "name": {"bsonType": "string", "minLength": 1, "maxLength": 100},
-            "page": {"enum": ["operations", "explore", "flows", "compare"]},
+            "page": {"enum": ["dashboard", "flows"]},
             "filters": {
                 "bsonType": "object",
                 "additionalProperties": False,

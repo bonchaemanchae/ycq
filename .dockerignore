@@ -1,0 +1,15 @@
+# Keeps the Docker build context small and stops host-built files leaking
+# into the images. Without this, web/node_modules from a Windows `npm install`
+# would overwrite the Linux one inside the web image and break `npm run build`.
+.git
+.env
+.env.*
+data/
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+web/node_modules/
+web/dist/
+web/*.tsbuildinfo

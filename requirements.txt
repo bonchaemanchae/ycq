@@ -1,8 +1,10 @@
 polars==2.0.0
 pyarrow
-psycopg[binary]==3.3.6
+psycopg[binary,pool]==3.3.6
 pymongo==4.18.3
 python-dotenv
 pyshp
 requests
 pytest
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
