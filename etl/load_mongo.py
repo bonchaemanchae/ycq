@@ -8,6 +8,7 @@ zone_hour_observation and od_summary. Time-series collections don't enforce
 unique keys, so the loader always deletes before inserting.
 """
 import argparse
+import os
 import time
 from collections import defaultdict
 from datetime import timezone
@@ -135,6 +136,9 @@ def ensure_collections(db) -> None:
         )
     db[HOURLY].create_index([("meta.zoneId", ASCENDING), ("timestamp", ASCENDING)])
     db[HOURLY].create_index([("localDate", ASCENDING), ("localHour", ASCENDING)])
+    # Weekday + hour, like PostgreSQL's zone_hour_dow_hour_idx: the planner's
+    # statistics (and its PostgreSQL vs MongoDB comparison) filter on these.
+    db[HOURLY].create_index([("isoDayOfWeek", ASCENDING), ("localHour", ASCENDING)])
 
     for name, schema in ((OD, OD_SCHEMA), (VIEWS, VIEWS_SCHEMA)):
         try:
@@ -149,8 +153,57 @@ def ensure_collections(db) -> None:
     db[VIEWS].create_index([("ownerUserId", ASCENDING), ("name", ASCENDING)], unique=True)
 
 
+def ensure_app_user(client) -> None:
+    """The API's own MongoDB login: read and write on the ycq database only.
+
+    The loader runs as the root user it was started with; the API uses this
+    one instead (MONGO_APP_USER / MONGO_APP_PASSWORD), so it can't touch other
+    databases or users. Created on the first run, password and role updated
+    on later runs.
+    """
+    user, password = os.getenv("MONGO_APP_USER"), os.getenv("MONGO_APP_PASSWORD")
+    if not user or not password:
+        return
+    roles = [{"role": "readWrite", "db": os.getenv("MONGO_DB", "ycq")}]
+    if client.admin.command("usersInfo", user)["users"]:
+        client.admin.command("updateUser", user, pwd=password, roles=roles)
+    else:
+        client.admin.command("createUser", user, pwd=password, roles=roles)
+    print(f"MongoDB app user {user!r}: readWrite on {roles[0]['db']}")
+
+
 def avg(total, count):
     return round(float(total) / count, 4) if count else None
+
+
+# The numbers in each document, from PostgreSQL's sums and counts. reconcile.py
+# uses the same functions to check every field.
+
+def hourly_fields(pu, do, fare_sum, fare_n, dist_sum, dist_n, dur_sum, dur_n) -> dict:
+    return {
+        "pickups": pu,
+        "dropoffs": do,
+        "imbalance": pu - do,
+        "fareSum": float(fare_sum),
+        "fareTripCount": fare_n,
+        "averageFare": avg(fare_sum, fare_n),
+        "distanceSum": float(dist_sum),
+        "distanceTripCount": dist_n,
+        "averageDistance": avg(dist_sum, dist_n),
+        "durationSumSec": float(dur_sum),
+        "durationTripCount": dur_n,
+        "averageDurationSec": avg(dur_sum, dur_n),
+    }
+
+
+def destination_fields(trips, total, fare_sum, fare_n, dist_sum, dist_n, dur_sum, dur_n) -> dict:
+    return {
+        "trips": trips,
+        "share": round(trips / total, 6),
+        "averageFare": avg(fare_sum, fare_n),
+        "averageDistance": avg(dist_sum, dist_n),
+        "averageDurationSec": avg(dur_sum, dur_n),
+    }
 
 
 def load_hourly(conn, db, start, end) -> int:
@@ -181,18 +234,7 @@ def load_hourly(conn, db, start, end) -> int:
             "localDate": local_date.isoformat(),
             "localHour": hour,
             "isoDayOfWeek": dow,
-            "pickups": pu,
-            "dropoffs": do,
-            "imbalance": pu - do,
-            "fareSum": float(fare_sum),
-            "fareTripCount": fare_n,
-            "averageFare": avg(fare_sum, fare_n),
-            "distanceSum": float(dist_sum),
-            "distanceTripCount": dist_n,
-            "averageDistance": avg(dist_sum, dist_n),
-            "durationSumSec": float(dur_sum),
-            "durationTripCount": dur_n,
-            "averageDurationSec": avg(dur_sum, dur_n),
+            **hourly_fields(pu, do, fare_sum, fare_n, dist_sum, dist_n, dur_sum, dur_n),
         })
         if len(batch) == 20_000:
             inserted += len(coll.insert_many(batch, ordered=False).inserted_ids)
@@ -250,10 +292,7 @@ def load_od(conn, db, start) -> int:
                 {
                     "rank": i,
                     "zoneId": dest, "zoneName": zname, "borough": dborough,
-                    "trips": trips, "share": round(trips / total, 6),
-                    "averageFare": avg(fs, fn),
-                    "averageDistance": avg(ds, dn),
-                    "averageDurationSec": avg(us, un),
+                    **destination_fields(trips, total, fs, fn, ds, dn, us, un),
                 }
                 for i, (dest, zname, dborough, trips, fs, fn, ds, dn, us, un)
                 in enumerate(dests[:TOP_N], start=1)

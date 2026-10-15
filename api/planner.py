@@ -19,6 +19,9 @@ them, the best max_zones_per_hour zones are kept, and the fleet is split in
 proportion to score by the largest-remainder method, so every hour adds up to
 exactly fleet_size (the rule the 006/011 triggers enforce on save).
 """
+import math
+import statistics
+import time
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -54,13 +57,13 @@ class PlanParams:
         self.hours = list(range(self.start_hour, self.end_hour + 1))
 
 
-# Deferred constraint triggers from sql/006 and sql/011
-PLAN_TRIGGERS = "allocation_result_hour_total, allocation_plan_version_hours"
+# Deferred constraint triggers from sql/006, sql/011 and sql/012
+PLAN_TRIGGERS = "allocation_result_hour_total, allocation_plan_version_hours, allocation_result_zone"
 
-SCORE_SQL = """
-WITH stats AS (
-    -- zone_hour_observation has a row for every zone and hour (zeros
-    -- included), so count(*) is the number of days observed.
+# Per zone and hour on the chosen weekday. zone_hour_observation has a row for
+# every zone and hour (zeros included), so count(*) is the number of days
+# observed. compare_stores() runs the same statistics on MongoDB.
+STATS_SQL = """
     SELECT h.location_id,
            h.local_hour                      AS hour,
            count(*)::int                     AS days,
@@ -74,10 +77,15 @@ WITH stats AS (
       AND h.local_hour BETWEEN %(start_hour)s AND %(end_hour)s
       AND z.borough_id = ANY(%(borough_ids)s)
     GROUP BY h.location_id, h.local_hour
-),
+"""
+
+SCORE_SQL = """
+WITH stats AS (""" + STATS_SQL + """),
 candidates AS (
     SELECT s.*,
-           1 / (1 + coalesce(s.sd_pickups / nullif(s.avg_pickups, 0), 1)) AS consistency,
+           -- 1 / (1 + coefficient of variation); a zone with no pickups gets 0
+           CASE WHEN s.avg_pickups > 0
+                THEN 1 / (1 + s.sd_pickups / s.avg_pickups) ELSE 0 END    AS consistency,
            f.median_fare
     FROM stats s
     LEFT JOIN zone_weekday_hour_fare f
@@ -86,14 +94,24 @@ candidates AS (
           AND f.local_hour = s.hour
     WHERE s.trips >= %(min_sample)s
 ),
+percentiles AS (
+    -- Each metric as a 0-1 percentile within its hour. A missing median fare
+    -- (no metered trips) counts as 0, so it ranks lowest on fare.
+    SELECT *,
+           cume_dist() OVER (PARTITION BY hour ORDER BY avg_pickups)              AS pct_pickup,
+           cume_dist() OVER (PARTITION BY hour ORDER BY avg_imbalance)            AS pct_imbalance,
+           cume_dist() OVER (PARTITION BY hour ORDER BY consistency)              AS pct_consistency,
+           cume_dist() OVER (PARTITION BY hour ORDER BY coalesce(median_fare, 0)) AS pct_fare
+    FROM candidates
+),
 scored AS (
     SELECT *,
-           round((  %(w_pickup)s      * cume_dist() OVER (PARTITION BY hour ORDER BY avg_pickups)
-                  + %(w_imbalance)s   * cume_dist() OVER (PARTITION BY hour ORDER BY avg_imbalance)
-                  + %(w_consistency)s * cume_dist() OVER (PARTITION BY hour ORDER BY consistency)
-                  + %(w_fare)s        * cume_dist() OVER (PARTITION BY hour ORDER BY coalesce(median_fare, 0))
+           round((  %(w_pickup)s      * pct_pickup
+                  + %(w_imbalance)s   * pct_imbalance
+                  + %(w_consistency)s * pct_consistency
+                  + %(w_fare)s        * pct_fare
                  )::numeric, 5) AS score
-    FROM candidates
+    FROM percentiles
 ),
 ranked AS (
     SELECT *,
@@ -114,7 +132,8 @@ floored AS (
            floor(exact_share)::int AS base,
            %(fleet_size)s - sum(floor(exact_share)) OVER (PARTITION BY hour, selected) AS leftover,
            row_number() OVER (PARTITION BY hour, selected
-                              ORDER BY exact_share - floor(exact_share) DESC, score DESC) AS remainder_rank
+                              ORDER BY exact_share - floor(exact_share) DESC, score DESC,
+                                       location_id) AS remainder_rank
     FROM shares
 )
 SELECT f.hour,
@@ -128,6 +147,14 @@ SELECT f.hour,
        CASE WHEN f.selected
             THEN f.base + (f.remainder_rank <= f.leftover)::int
             ELSE 0 END                                AS proposed_taxis,
+       f.days,
+       round(f.avg_pickups, 1)                        AS avg_pickups,
+       round(f.avg_imbalance, 1)                      AS avg_imbalance,
+       f.median_fare,
+       round(f.pct_pickup::numeric, 3)                AS pct_pickup,
+       round(f.pct_imbalance::numeric, 3)             AS pct_imbalance,
+       round(f.pct_consistency::numeric, 3)           AS pct_consistency,
+       round(f.pct_fare::numeric, 3)                  AS pct_fare,
        format('%%s pickups and net %%s per hour on average over %%s days, median fare %%s',
               round(f.avg_pickups, 1), round(f.avg_imbalance, 1), f.days,
               coalesce('$' || f.median_fare, 'unknown'))  AS reason
@@ -270,6 +297,28 @@ def list_plans(conn: psycopg.Connection, owner_user_id: int) -> list[dict]:
         ).fetchall()
 
 
+def list_versions(conn: psycopg.Connection, owner_user_id: int, plan_id: int) -> list[dict]:
+    """A plan's saved versions, newest first, with their settings and edit counts."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        if cur.execute(
+            "SELECT 1 FROM allocation_plan WHERE allocation_plan_id = %s AND owner_user_id = %s",
+            (plan_id, owner_user_id),
+        ).fetchone() is None:
+            raise PlanNotFound(f"plan {plan_id} not found")
+        return cur.execute(
+            """SELECT v.version_no, v.created_at, v.fleet_size, v.iso_dow,
+                      v.start_hour, v.end_hour, v.note,
+                      count(DISTINCT r.location_id) FILTER (WHERE r.final_taxis > 0)::int AS zones_used,
+                      count(*) FILTER (WHERE r.final_taxis <> r.proposed_taxis)::int     AS edited_rows
+               FROM allocation_plan_version v
+               LEFT JOIN allocation_result r USING (allocation_plan_id, version_no)
+               WHERE v.allocation_plan_id = %s
+               GROUP BY v.allocation_plan_id, v.version_no
+               ORDER BY v.version_no DESC""",
+            (plan_id,),
+        ).fetchall()
+
+
 def get_version(conn: psycopg.Connection, owner_user_id: int, plan_id: int,
                 version_no: int) -> dict:
     """A saved version's settings, boroughs and results."""
@@ -312,15 +361,21 @@ def compare_versions(conn: psycopg.Connection, owner_user_id: int, plan_id: int,
                     b AS (SELECT r.* FROM allocation_result r
                           JOIN allocation_plan p USING (allocation_plan_id)
                           WHERE r.allocation_plan_id = %(plan)s AND p.owner_user_id = %(owner)s
-                            AND r.version_no = %(v_to)s)
-               SELECT coalesce(a.hour, b.hour)               AS hour,
-                      coalesce(a.location_id, b.location_id) AS location_id,
-                      coalesce(a.final_taxis, 0)             AS taxis_before,
-                      coalesce(b.final_taxis, 0)             AS taxis_after,
-                      coalesce(b.final_taxis, 0) - coalesce(a.final_taxis, 0) AS change
-               FROM a FULL OUTER JOIN b USING (hour, location_id)
-               WHERE coalesce(a.final_taxis, 0) <> coalesce(b.final_taxis, 0)
-               ORDER BY 1, abs(coalesce(b.final_taxis, 0) - coalesce(a.final_taxis, 0)) DESC, 2""",
+                            AND r.version_no = %(v_to)s),
+                    diff AS (
+                        SELECT coalesce(a.hour, b.hour)               AS hour,
+                               coalesce(a.location_id, b.location_id) AS location_id,
+                               coalesce(a.final_taxis, 0)             AS taxis_before,
+                               coalesce(b.final_taxis, 0)             AS taxis_after
+                        FROM a FULL OUTER JOIN b USING (hour, location_id))
+               SELECT d.hour, d.location_id, z.zone_name, bo.name AS borough,
+                      d.taxis_before, d.taxis_after,
+                      d.taxis_after - d.taxis_before AS change
+               FROM diff d
+               JOIN taxi_zone z USING (location_id)
+               JOIN borough bo USING (borough_id)
+               WHERE d.taxis_before <> d.taxis_after
+               ORDER BY d.hour, abs(d.taxis_after - d.taxis_before) DESC, d.location_id""",
             {"plan": plan_id, "owner": owner_user_id, "v_from": from_version, "v_to": to_version},
         ).fetchall()
 
@@ -350,3 +405,82 @@ def delete_plan(conn: psycopg.Connection, owner_user_id: int, plan_id: int) -> N
         ).rowcount
     if not deleted:
         raise PlanNotFound(f"plan {plan_id} not found")
+
+
+# --- PostgreSQL vs MongoDB ---------------------------------------------------
+
+STAT_FIELDS = ("days", "trips", "avg_pickups", "avg_imbalance", "sd_pickups")
+
+
+def mongo_stats_pipeline(p: PlanParams, boroughs: list[str]) -> list[dict]:
+    """STATS_SQL as a MongoDB aggregation on the hourly time-series
+    collection: the same filter and the same five numbers per zone and hour."""
+    return [
+        {"$match": {"meta.borough": {"$in": boroughs},
+                    "isoDayOfWeek": p.iso_dow,
+                    "localHour": {"$gte": p.start_hour, "$lte": p.end_hour}}},
+        {"$group": {"_id": {"zone": "$meta.zoneId", "hour": "$localHour"},
+                    "days": {"$sum": 1},
+                    "trips": {"$sum": "$pickups"},
+                    "avg_pickups": {"$avg": "$pickups"},
+                    "avg_imbalance": {"$avg": "$imbalance"},
+                    "sd_pickups": {"$stdDevPop": "$pickups"}}},
+    ]
+
+
+def _timed(fn, runs: int):
+    times, result = [], None
+    for _ in range(runs):
+        t0 = time.perf_counter()
+        result = fn()
+        times.append((time.perf_counter() - t0) * 1000)
+    return result, {"first_ms": round(times[0], 2), "median_ms": round(statistics.median(times), 2)}
+
+
+def compare_stores(conn: psycopg.Connection, mongo_db, p: PlanParams, runs: int = 5) -> dict:
+    """The planner's zone-hour statistics from PostgreSQL (STATS_SQL on
+    zone_hour_observation) and from MongoDB (the time-series collection),
+    compared value by value and timed: the first run, which may be cold, and
+    the median of `runs` runs.
+
+    Median fares aren't compared: a median can't be rebuilt from hourly sums,
+    so they only exist in PostgreSQL (zone_weekday_hour_fare)."""
+    boroughs = [name for (name,) in conn.execute(
+        "SELECT name FROM borough WHERE borough_id = ANY(%s) ORDER BY name", (p.borough_ids,))]
+    pipeline = mongo_stats_pipeline(p, boroughs)
+
+    def from_postgres():
+        with conn.cursor(row_factory=dict_row) as cur:
+            return cur.execute(STATS_SQL, _sql_params(p)).fetchall()
+
+    def from_mongo():
+        return list(mongo_db["zone_activity_timeseries"].aggregate(pipeline))
+
+    pg_rows, pg_time = _timed(from_postgres, runs)
+    mongo_rows, mongo_time = _timed(from_mongo, runs)
+    pg = {(r["location_id"], r["hour"]): r for r in pg_rows}
+    mongo = {(d["_id"]["zone"], d["_id"]["hour"]): d for d in mongo_rows}
+
+    mismatches = []
+    for key in sorted(pg.keys() | mongo.keys()):
+        a, b = pg.get(key), mongo.get(key)
+        if a is None or b is None:
+            fields = [f"missing in {'PostgreSQL' if a is None else 'MongoDB'}"]
+        else:
+            fields = [f for f in STAT_FIELDS
+                      if not math.isclose(float(a[f]), float(b[f]), rel_tol=1e-9, abs_tol=1e-9)]
+        if fields:
+            mismatches.append({"location_id": key[0], "hour": key[1], "fields": fields})
+
+    return {
+        "zone_hours": len(pg),
+        "values_compared": len(pg) * len(STAT_FIELDS),
+        "fields": STAT_FIELDS,
+        "mismatch_count": len(mismatches),
+        "mismatches": mismatches[:20],
+        "runs": runs,
+        "postgres": pg_time,
+        "mongodb": mongo_time,
+        "postgres_sql": " ".join(STATS_SQL.split()),
+        "mongodb_pipeline": pipeline,
+    }

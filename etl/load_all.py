@@ -16,7 +16,7 @@ import sys
 import time
 
 from common import ROOT, mongo_db, next_month, parse_month, pg_connect
-from load_mongo import HOURLY, ensure_collections
+from load_mongo import HOURLY, ensure_app_user, ensure_collections
 
 DEFAULT_MONTHS = ["2026-01", "2026-02", "2026-03"]
 
@@ -78,6 +78,7 @@ def main() -> None:
     # Re-applies the MongoDB validators and indexes, so a change to them in
     # load_mongo.py reaches databases whose months are already loaded.
     ensure_collections(mongo_db())
+    ensure_app_user(mongo_db().client)
 
     for month in args.months:
         imported, summarised, in_mongo = month_state(month)

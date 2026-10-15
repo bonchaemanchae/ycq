@@ -5,8 +5,8 @@
 Deletes and re-inserts that month's zone_hour_observation rows in one
 transaction (every zone with a map shape x every local hour of the month,
 zeros included), then refreshes the od_summary and zone_weekday_hour_fare
-materialised views (both cover every loaded month). Running it twice gives the
-same result.
+materialised views (both cover every loaded month) CONCURRENTLY, so the API can
+keep reading them meanwhile. Running it twice gives the same result.
 """
 import argparse
 import time
@@ -87,6 +87,21 @@ LEFT JOIN dropoffs d ON d.location_id = z.location_id AND d.obs_hour = h.obs_hou
 """
 
 
+def refresh(conn, view: str) -> None:
+    """Refresh a materialised view without blocking readers.
+
+    CONCURRENTLY keeps the old contents readable while the new ones are built
+    (it needs the view's unique index, and a connection outside a transaction).
+    A view that was never filled (created WITH NO DATA) needs one plain refresh
+    first.
+    """
+    populated = conn.execute(
+        "SELECT ispopulated FROM pg_matviews WHERE matviewname = %s", (view,)
+    ).fetchone()[0]
+    conn.execute(f"REFRESH MATERIALIZED VIEW {'CONCURRENTLY ' if populated else ''}{view}")
+    conn.execute(f"ANALYZE {view}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--month", required=True, help="YYYY-MM")
@@ -107,9 +122,8 @@ def main() -> None:
               f"({time.perf_counter() - t0:.1f}s)")
 
         t0 = time.perf_counter()
-        conn.execute("REFRESH MATERIALIZED VIEW od_summary")
+        refresh(conn, "od_summary")
         conn.execute("ANALYZE zone_hour_observation")
-        conn.execute("ANALYZE od_summary")
         rows = conn.execute(
             "SELECT count(*), sum(trips) FROM od_summary WHERE month = %s", (start,)
         ).fetchone()
@@ -119,8 +133,7 @@ def main() -> None:
         # Medians don't add up month by month, so this is rebuilt from every
         # loaded month each time.
         t0 = time.perf_counter()
-        conn.execute("REFRESH MATERIALIZED VIEW zone_weekday_hour_fare")
-        conn.execute("ANALYZE zone_weekday_hour_fare")
+        refresh(conn, "zone_weekday_hour_fare")
         rows = conn.execute(
             "SELECT count(*), sum(fare_trip_count) FROM zone_weekday_hour_fare"
         ).fetchone()

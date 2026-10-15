@@ -52,7 +52,7 @@ All `docker compose` commands must be run from the folder that contains
 | `postgres` | PostgreSQL 16 + PostGIS | `localhost:5432` |
 | `mongo` | MongoDB 8.0 | `localhost:27017` |
 | `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
-| `api` | FastAPI backend | http://localhost:8000/docs |
+| `api` | FastAPI backend. Logs in to MongoDB as `MONGO_APP_USER`, which the loader creates with read/write on the `ycq` database only (not root) | http://localhost:8000/docs |
 | `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
 
 The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
@@ -143,6 +143,18 @@ shared map is `web/src/components/ZoneMap.tsx`; pass
 `values={{ [location_id]: number }}` to colour zones. A brand-new page has to
 be added to `PAGES` in `web/src/App.tsx` to get a tab.
 
+### Rules the database enforces on saved plans
+
+Saved allocation plans are checked by the database itself, not only by the API
+(`sql/006`, `011`, `012`):
+
+- every hour of a version adds up exactly to the fleet size, and no hour in the
+  version's range is missing;
+- every result's zone has a map shape and is in one of the version's boroughs;
+- a saved version, its boroughs and its results can't be updated or deleted on
+  their own. Changes are saved as a new version, and deleting the plan removes
+  all its versions.
+
 ## Working with the database
 
 ### See what's loaded
@@ -205,17 +217,29 @@ planner's median fares. Then add its checksum to `KNOWN_SHA256` in
 
 ### Change the import rules or summaries
 
-A month can only be imported once (rule R5), so a change to
-`etl/import_month.py` only shows after a fresh load:
+A month can only be imported once (rule R5). To import it again after a change
+to `etl/import_month.py`, or because TLC republished it, remove just that month
+first. Users, plans and saved views are kept:
 
 ```bash
-docker compose down -v            # deletes ALL data: trips, users, plans, saved views
-docker compose up -d --build
+docker compose build loader
+docker compose run --rm loader python etl/delete_month.py --month 2026-01
+docker compose up -d                  # the loader imports the month again
 ```
 
-Try it on one month first (`YCQ_MONTHS=2026-01`), and run the tests. A change to
-`build_aggregates.py` or `load_mongo.py` doesn't need a fresh load. Those
-scripts delete a month before rebuilding it, so you can rerun them per month:
+`delete_month.py` removes, in one transaction, the month's trips (its
+partition), warnings, rejected rows, hourly summaries and import batch, then
+refreshes the views and deletes the month's MongoDB documents. If the next month
+is loaded too, rebuild its summaries afterwards (below), because drop-offs late
+on the deleted month's last day are counted there. Run the tests after any rule
+change.
+
+`docker compose down -v` also starts over, but it deletes **everything**,
+including users, plans and saved views that can't be rebuilt.
+
+A change to `build_aggregates.py` or `load_mongo.py` doesn't need a re-import.
+Those scripts delete a month before rebuilding it, so you can rerun them per
+month:
 
 ```bash
 docker compose build loader
@@ -247,8 +271,11 @@ python etl/reconcile.py        --month 2026-01
 `reconcile.py` must print **PASSED**, and the counts must match the
 [results table](#results-january-to-march-2026).
 
-- Downloads are checked by SHA-256. A file that differs is renamed to
-  `.mismatch` so it can't be imported.
+- Downloads (trip files and both zone files) are checked by SHA-256. A file
+  that differs is renamed to `.mismatch` so it can't be imported.
+- `reconcile.py` recomputes every number in every MongoDB document (counts,
+  sums, averages, destination shares) from PostgreSQL, so a hand edit to any
+  of them makes it fail.
 - An import is one transaction. The same file, or a second file for a month
   that's already loaded, is refused (R5), so re-running is harmless.
 - `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
@@ -292,7 +319,7 @@ api/        FastAPI backend: main.py, db.py, auth.py, planner.py, routers/ (one 
 web/        React + TypeScript (Vite) website: src/pages/ (one per feature), src/components/
 sql/        schema, applied in number order by etl/setup_db.py
 etl/        load_all (what the loader container runs), setup_db, load_zones,
-            import_month, build_aggregates, load_mongo, reconcile
+            import_month, build_aggregates, load_mongo, reconcile, delete_month
 scripts/    download_data.py (TLC files + checksum check)
 tests/      pytest suite (uses its own ycq_test databases)
 data/       downloaded files (not in git)
@@ -307,7 +334,7 @@ One `requirements.txt` covers the API, the ETL and the tests; the `api` and
 
 Every row is either **accepted** into `trip` or **rejected** into
 `rejected_trip` with one reason code (the first rule that applies, checked in
-the order R1, R2, R3, R6, R4, R7):
+the order R1, R2, R3, R6, R4, R8, R9, R7):
 
 | Code | Rejected when |
 |---|---|
@@ -316,6 +343,8 @@ the order R1, R2, R3, R6, R4, R7):
 | R3 | Pickup outside the file's month |
 | R6 | Trip longer than 24 hours |
 | R4 | Pickup zone missing or has no map shape (zones 264, 265) |
+| R8 | Vendor, payment type or rate code not in its lookup table (rate code 99 and a missing rate code are still accepted). None in the three 2026 files; without it, one such row would abort the whole month |
+| R9 | Impossible value: negative passenger count, or a passenger count, distance or money amount too large for its column, or not a number (NaN, infinity). None in the three 2026 files; same reason as R8 |
 | R7 | Reversal: a negative fare with a positive twin (same vendor, pickup time, pickup zone, drop-off zone, opposite fare). Paired one to one; the original is kept |
 | R5 | File refused: the same file, or another file for the same month, was already imported (the import stops and writes nothing) |
 
@@ -392,7 +421,7 @@ Fare trips have no distance recorded.
 | My change doesn't show | Normal mode needs `--build`. In dev mode try `docker compose restart api` (or `web`) |
 | Port 8000 or 8080 in use | Change `API_PORT` / `WEB_PORT` in `.env` |
 | Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
-| `R5: ... already imported` | That month is already in. See [Change the import rules](#change-the-import-rules-or-summaries) |
+| `R5: ... already imported` | That month is already in. To import it again, `etl/delete_month.py` it first; see [Change the import rules](#change-the-import-rules-or-summaries) |
 | Checksum mismatch | Download again. If it still differs, TLC changed the file: tell the team and don't import it |
 | `pip install` fails on polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
 

@@ -25,13 +25,18 @@ def plan(loaded):
     conn.close()
 
 
-def save(conn, plan_id, results, fleet=3, hours=(8, 9)):
+def save(conn, plan_id, results, fleet=3, hours=(8, 9), borough="Manhattan"):
     """Save version 1 with results [(hour, zone, taxis)] and check it now."""
     conn.execute(
         """INSERT INTO allocation_plan_version
                (allocation_plan_id, version_no, fleet_size, iso_dow, start_hour, end_hour)
            VALUES (%s, 1, %s, 1, %s, %s)""",
         (plan_id, fleet, *hours),
+    )
+    conn.execute(
+        """INSERT INTO allocation_plan_version_borough
+           SELECT %s, 1, borough_id FROM borough WHERE name = %s""",
+        (plan_id, borough),
     )
     for rank, (hour, zone, taxis) in enumerate(results, start=1):
         conn.execute(
@@ -70,12 +75,51 @@ def test_negative_taxis_are_refused(plan):
         save(conn, plan_id, [(8, 1, 4), (8, 2, -1), (9, 1, 3)])
 
 
-def test_emptying_a_saved_hour_is_refused(plan):
+def test_deleting_saved_results_is_refused(plan):
     conn, plan_id = plan
     save(conn, plan_id, [(8, 1, 3), (9, 1, 3)])
-    with pytest.raises(psycopg.errors.CheckViolation, match="hour 9 has no allocations"):
+    with pytest.raises(psycopg.errors.CheckViolation, match="can't be changed"):
         conn.execute("DELETE FROM allocation_result WHERE allocation_plan_id = %s AND hour = 9",
                      (plan_id,))
+
+
+@pytest.mark.parametrize("sql", [
+    # the review's example: a saved version edited into breaking its own rules
+    "UPDATE allocation_plan_version SET fleet_size = 50 WHERE allocation_plan_id = %s",
+    "UPDATE allocation_plan_version SET end_hour = 12 WHERE allocation_plan_id = %s",
+    "UPDATE allocation_result SET final_taxis = 0 WHERE allocation_plan_id = %s",
+    "UPDATE allocation_plan_version_borough SET borough_id = borough_id WHERE allocation_plan_id = %s",
+    "DELETE FROM allocation_plan_version_borough WHERE allocation_plan_id = %s",
+    "DELETE FROM allocation_plan_version WHERE allocation_plan_id = %s",
+])
+def test_saved_versions_cannot_be_changed(plan, sql):
+    conn, plan_id = plan
+    save(conn, plan_id, [(8, 1, 3), (9, 1, 3)])
+    with pytest.raises(psycopg.errors.CheckViolation, match="can't be (changed|deleted on its own)"):
+        conn.execute(sql, (plan_id,))
+
+
+def test_deleting_the_plan_still_removes_its_versions(plan):
+    conn, plan_id = plan
+    save(conn, plan_id, [(8, 1, 3), (9, 1, 3)])
+    conn.execute("DELETE FROM allocation_plan WHERE allocation_plan_id = %s", (plan_id,))
+    for table in ("allocation_plan_version", "allocation_plan_version_borough", "allocation_result"):
+        assert conn.execute(f"SELECT count(*) FROM {table} WHERE allocation_plan_id = %s",
+                            (plan_id,)).fetchone()[0] == 0
+
+
+def test_zone_outside_the_plans_boroughs_is_refused(plan):
+    conn, plan_id = plan
+    # The version only allows "Unknown"; zone 1 is in Manhattan.
+    with pytest.raises(psycopg.errors.CheckViolation, match="zone 1 is not in the plan's boroughs"):
+        save(conn, plan_id, [(8, 1, 3), (9, 1, 3)], borough="Unknown")
+
+
+def test_zone_without_a_map_shape_is_refused(plan):
+    conn, plan_id = plan
+    # Zone 264 is in the Unknown borough and has no shape.
+    with pytest.raises(psycopg.errors.CheckViolation, match="zone 264 .* no map shape"):
+        save(conn, plan_id, [(8, 264, 3), (9, 264, 3)], borough="Unknown")
 
 
 def test_weights_must_add_up_to_one(plan):

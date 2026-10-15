@@ -15,11 +15,15 @@ import requests
 BASE = "https://d37ci6vzurychx.cloudfront.net"
 DATA = Path(__file__).resolve().parent.parent / "data"
 
-# Known checksums (prefix is enough to catch a wrong or changed file).
+# Known checksums (prefix is enough to catch a wrong or changed file). The zone
+# files are pinned too: TLC has changed them before, which would silently
+# shift zone counts.
 KNOWN_SHA256 = {
     "yellow_tripdata_2026-01.parquet": "8b3933fe6f0d7b6d",
     "yellow_tripdata_2026-02.parquet": "5352ca800f29c40a",
     "yellow_tripdata_2026-03.parquet": "d7af794a7ac06cbb",
+    "taxi_zone_lookup.csv": "1a99e105092230f8",
+    "taxi_zones.zip": "f6d711917bb4340f",
 }
 
 
@@ -54,9 +58,13 @@ def main() -> int:
     (DATA / "trips").mkdir(parents=True, exist_ok=True)
 
     print("zones")
-    fetch(f"{BASE}/misc/taxi_zone_lookup.csv", DATA / "zones" / "taxi_zone_lookup.csv")
+    lookup = DATA / "zones" / "taxi_zone_lookup.csv"
+    fetch(f"{BASE}/misc/taxi_zone_lookup.csv", lookup)
     zip_path = DATA / "zones" / "taxi_zones.zip"
     fetch(f"{BASE}/misc/taxi_zones.zip", zip_path)
+    if not (verify(lookup) & verify(zip_path)):
+        print("zone files differ from the pinned ones; nothing was extracted", file=sys.stderr)
+        return 1
     with zipfile.ZipFile(zip_path) as z:
         for name in z.namelist():
             # flatten: the zip nests files in a taxi_zones/ folder
@@ -73,20 +81,26 @@ def main() -> int:
         dest = DATA / "trips" / name
         print(name)
         fetch(f"{BASE}/trip-data/{name}", dest)
-        digest = sha256(dest)
-        expected = KNOWN_SHA256.get(name)
-        status = ""
-        if expected:
-            if digest.startswith(expected):
-                status = "OK"
-            else:
-                # Move it aside so import_month.py can't load the wrong file.
-                bad = dest.with_name(dest.name + ".mismatch")
-                dest.replace(bad)
-                status = f"MISMATCH (expected {expected}...), moved to {bad.name}"
-                ok = False
-        print(f"  sha256 {digest} {status}")
+        ok &= verify(dest)
     return 0 if ok else 1
+
+
+def verify(path: Path) -> bool:
+    """Check a file against KNOWN_SHA256. A file that differs is moved aside
+    (renamed to .mismatch) so it can't be loaded by mistake."""
+    digest = sha256(path)
+    expected = KNOWN_SHA256.get(path.name)
+    status, ok = "", True
+    if expected:
+        if digest.startswith(expected):
+            status = "OK"
+        else:
+            bad = path.with_name(path.name + ".mismatch")
+            path.replace(bad)
+            status = f"MISMATCH (expected {expected}...), moved to {bad.name}"
+            ok = False
+    print(f"  {path.name} sha256 {digest} {status}")
+    return ok
 
 
 if __name__ == "__main__":

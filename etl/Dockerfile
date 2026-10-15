@@ -10,6 +10,8 @@ COPY sql sql
 COPY etl etl
 COPY scripts scripts
 # so the test suite can run here too: docker compose run --rm loader pytest tests
+# (test_planner.py imports api/planner.py)
 COPY tests tests
+COPY api api
 
 CMD ["python", "etl/load_all.py"]

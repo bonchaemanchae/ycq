@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .. import planner
 from ..auth import User, current_user
-from ..db import get_pg
+from ..db import get_pg, mongo
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -60,12 +60,21 @@ def _http(e: Exception) -> HTTPException:
 
 @router.post("/preview")
 def preview(settings: PlanSettings, conn=Depends(get_pg), user: User = Depends(current_user)):
+    """The proposal, plus every other eligible zone so the analyst can add one."""
     p = settings.to_params()
     rows = planner.score(conn, p)
     return {
         "allocations": [r for r in rows if r["selected"]],
+        "candidates": [r for r in rows if not r["selected"]],
         "empty_hours": planner.empty_hours(p, rows),
     }
+
+
+@router.post("/compare-stores")
+def compare_stores(settings: PlanSettings, conn=Depends(get_pg), user: User = Depends(current_user)):
+    """The planner's zone-hour statistics computed in PostgreSQL and in
+    MongoDB's time-series collection, compared value by value and timed."""
+    return planner.compare_stores(conn, mongo(), settings.to_params())
 
 
 @router.get("")
@@ -95,6 +104,14 @@ def rename_plan(plan_id: int, body: PlanName, conn=Depends(get_pg),
 def delete_plan(plan_id: int, conn=Depends(get_pg), user: User = Depends(current_user)):
     try:
         planner.delete_plan(conn, user.user_id, plan_id)
+    except planner.PlanNotFound as e:
+        raise _http(e)
+
+
+@router.get("/{plan_id}/versions")
+def list_versions(plan_id: int, conn=Depends(get_pg), user: User = Depends(current_user)):
+    try:
+        return planner.list_versions(conn, user.user_id, plan_id)
     except planner.PlanNotFound as e:
         raise _http(e)
 

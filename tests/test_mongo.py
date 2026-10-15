@@ -38,6 +38,38 @@ def test_tampered_document_is_detected(mongo):
     assert "PASSED" in run_ok("etl/reconcile.py", "--month", "2026-01").stdout
 
 
+HOUR_DOC = {"localDate": "2026-01-05", "localHour": 8, "meta.zoneId": 1}
+
+
+def edit_hourly(coll, field, value):
+    # MongoDB only allows updates on a time-series collection that filter on
+    # the meta field, so a hand edit is simulated as delete + insert.
+    doc = coll.find_one(HOUR_DOC)
+    coll.delete_many(HOUR_DOC)
+    coll.insert_one({**doc, field: value})
+
+
+def edit_destination(coll, field, value):
+    query = {"month": "2026-01", "originZoneId": 1, "destinations.0": {"$exists": True}}
+    assert coll.update_one(query, {"$set": {f"destinations.0.{field}": value}}).modified_count == 1
+
+
+@pytest.mark.parametrize("collection, edit, field, value", [
+    # values the dashboard and flow explorer show, not just counts
+    ("zone_activity_timeseries", edit_hourly, "averageFare", 999.0),
+    ("zone_activity_timeseries", edit_hourly, "fareSum", 12345.0),
+    ("origin_destination_snapshots", edit_destination, "averageDurationSec", 1.0),
+    ("origin_destination_snapshots", edit_destination, "share", 0.5),
+])
+def test_tampered_value_is_detected(mongo, collection, edit, field, value):
+    edit(mongo[collection], field, value)
+    result = run("etl/reconcile.py", "--month", "2026-01")
+    assert result.returncode == 1
+    assert "FAILED" in result.stdout
+    run_ok("etl/load_mongo.py", "--month", "2026-01")
+    assert "PASSED" in run_ok("etl/reconcile.py", "--month", "2026-01").stdout
+
+
 def saved_view(**overrides):
     now = datetime.now(timezone.utc)
     view = {"ownerUserId": 1, "name": "Morning peak", "page": "flows",

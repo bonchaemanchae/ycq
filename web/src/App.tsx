@@ -20,21 +20,31 @@ type Health = { postgres: boolean; mongodb: boolean; months_loaded: string[] };
 // Header badge: are both databases up, and which months are loaded.
 function Status() {
   const [text, setText] = useState("checking backend...");
+  const [ok, setOk] = useState<boolean | null>(null);
   useEffect(() => {
     api<Health>("/health")
-      .then((h) => setText(
-        `PostgreSQL ${h.postgres ? "up" : "down"} · MongoDB ${h.mongodb ? "up" : "down"} · ` +
-        `months: ${h.months_loaded.join(", ") || "none"}`))
-      .catch(() => setText("backend not reachable"));
+      .then((h) => {
+        setOk(h.postgres && h.mongodb);
+        setText(
+          `PostgreSQL ${h.postgres ? "up" : "down"} · MongoDB ${h.mongodb ? "up" : "down"} · ` +
+          `months: ${h.months_loaded.join(", ") || "none"}`);
+      })
+      .catch(() => {
+        setOk(false);
+        setText("backend not reachable");
+      });
   }, []);
-  return <span className="status">{text}</span>;
+  return <span className={`status ${ok === null ? "" : ok ? "ok" : "down"}`}>{text}</span>;
 }
 
 export default function App() {
   return (
     <div className="app">
       <header>
-        <strong>Yellow Cab Query</strong>
+        <div className="brand">
+          <span className="brand-mark">YC</span>
+          Yellow Cab Query
+        </div>
         <nav>
           {PAGES.map((p) => (
             <NavLink key={p.path} to={p.path}>

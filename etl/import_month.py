@@ -6,7 +6,7 @@ Steps, all in one transaction:
   1. Refuse the file if it, or any file for the same month, was already
      imported (R5).
   2. COPY the raw rows into the loose trip_staging table.
-  3. Sort every row in SQL: rejected rows (R1-R4, R6, R7) go to rejected_trip,
+  3. Sort every row in SQL: rejected rows (R1-R4, R6-R9) go to rejected_trip,
      the rest go to the month's trip partition.
   4. Record warnings (W1-W9) for accepted trips in trip_warning.
 The month argument sets the partition and the R3 date range.
@@ -49,7 +49,7 @@ RAW_COLS = list(COLUMNS.values())
 COPY_CHUNK = 250_000
 
 # Reject rules, checked in this order; a row gets the first that applies.
-# R7 (reversal) is decided last, only among rows that passed R1-R6.
+# R7 (reversal) is decided last, only among rows that passed every other rule.
 CLASSIFY_SQL = """
 CREATE TEMP TABLE staged ON COMMIT DROP AS
 SELECT s.*,
@@ -61,6 +61,20 @@ SELECT s.*,
            WHEN NOT EXISTS (SELECT 1 FROM taxi_zone z
                             WHERE z.location_id = s.pickup_location_id
                               AND z.geom IS NOT NULL)               THEN 'R4'
+           WHEN NOT EXISTS (SELECT 1 FROM vendor v WHERE v.vendor_id = s.vendor_id)
+             OR NOT EXISTS (SELECT 1 FROM payment_type p
+                            WHERE p.payment_type_id = s.payment_type_id)
+             OR (s.rate_code_id IS NOT NULL AND s.rate_code_id <> 99
+                 AND NOT EXISTS (SELECT 1 FROM rate_code r
+                                 WHERE r.rate_code_id = s.rate_code_id)) THEN 'R8'
+           -- R9: values trip's columns can't hold. In PostgreSQL NaN sorts
+           -- above every number, so the range checks catch NaN and infinity.
+           WHEN s.passenger_count NOT BETWEEN 0 AND 32767
+             OR abs(s.trip_distance) >= 9999999.99
+             OR greatest(abs(s.fare_amount), abs(s.extra), abs(s.mta_tax), abs(s.tip_amount),
+                         abs(s.tolls_amount), abs(s.improvement_surcharge), abs(s.total_amount),
+                         abs(s.congestion_surcharge), abs(s.airport_fee),
+                         abs(s.cbd_congestion_fee)) >= 9999999999.99     THEN 'R9'
        END::varchar(3) AS reason_code
 FROM trip_staging s
 WHERE s.import_batch_id = %(batch)s
@@ -209,7 +223,8 @@ def main() -> int:
                 f"R5: {args.month} was already imported as batch {same_month[0]} from "
                 f"{same_month[1]} (sha256 {same_month[2][:16]}...), and this file is different "
                 f"(sha256 {checksum[:16]}...). Nothing was imported. If TLC republished the "
-                f"month, agree it with the team, then start fresh with docker compose down -v.",
+                f"month, agree it with the team, then remove the old one with "
+                f"etl/delete_month.py --month {args.month} and import again.",
                 file=sys.stderr,
             )
             return 2
