@@ -1,0 +1,40 @@
+/* Flow Explorer only. Shared colours and controls are in src/styles.css. */
+
+/* controls */
+.flows-controls { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-start; }
+.flows-field { display: flex; flex-direction: column; gap: 5px; border: none; margin: 0; padding: 0; min-width: 0; }
+.flows-field > span, .flows-field > legend {
+  font-size: 12px; font-weight: 600; color: #4a4944; padding: 0; margin-bottom: 5px;
+}
+.flows-field select { max-width: 320px; }
+.flows-radios { display: flex; flex-wrap: wrap; gap: 6px; }
+.flows-radios label {
+  position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 5px 12px; border: 1px solid var(--line-strong); border-radius: 999px;
+  background: var(--surface); font-size: 13px;
+}
+.flows-radios label:hover { background: #f7f6f2; }
+.flows-radios label.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+.flows-radios label.on .muted { color: #c9c8c1; }
+/* the radio stays focusable for the keyboard; the pill shows its state */
+.flows-radios input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.flows-radios label:focus-within { outline: 2px solid var(--yellow); outline-offset: 1px; }
+
+/* results */
+.flows-summary { margin: -2px 0 12px; }
+.flows-note { margin: 10px 0 0; }
+.flows-empty { padding: 28px 8px; text-align: center; }
+.flows-stale { opacity: 0.5; transition: opacity 0.15s; }
+.flows-month-total { font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+/* map legend */
+.flows-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+  margin-top: 8px; font-size: 12px; color: var(--muted);
+}
+.flows-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.flows-swatch-line { display: inline-block; width: 28px; height: 4px; border-radius: 2px; background: #1f4fbf; }
+.flows-swatch-zone {
+  display: inline-block; width: 14px; height: 14px; border-radius: 3px;
+  background: rgba(230, 160, 0, 0.8); border: 1px solid #555;
+}

@@ -1,20 +1,38 @@
-"""Flow Explorer routes. TODO (Caleb): replace the example.
+"""Flow Explorer routes. The logic lives in api/flows.py.
 
-Served at /flows/... here and at /api/flows/... from the website.
+Served at /flows/... here and at /api/flows/... from the website. Query
+parameters are camelCase, like the MongoDB fields they filter on.
 """
-from fastapi import APIRouter
+from typing import Annotated
 
+from fastapi import APIRouter, Depends, Query
+
+from .. import flows
+from ..auth import current_user
 from ..db import mongo
 
-router = APIRouter(prefix="/flows", tags=["flows"])
+# Logged-in users only, once login replaces the dev user.
+router = APIRouter(prefix="/flows", tags=["flows"], dependencies=[Depends(current_user)])
 
 
-@router.get("/example")
-def example():
-    """Example MongoDB query, shown on the Flow Explorer page."""
-    db = mongo()
-    return {
-        name: db[name].estimated_document_count()
-        for name in ("zone_activity_timeseries", "origin_destination_snapshots",
-                     "saved_analysis_views")
-    }
+def _coll():
+    return mongo()[flows.COLLECTION]
+
+
+@router.get("")
+def flow_slice(q: Annotated[flows.SliceQuery, Query()]):
+    """Top 10 destinations from one zone for a month, day type and time bucket."""
+    return flows.get_slice(_coll(), q)
+
+
+@router.get("/months")
+def months():
+    """Months that have flow snapshots, oldest first."""
+    return flows.loaded_months(_coll())
+
+
+@router.get("/compare-months")
+def compare_months(q: Annotated[flows.CompareQuery, Query()]):
+    """One zone, day type and time bucket across every loaded month (each
+    month's top 10 only)."""
+    return flows.compare_months(_coll(), q)
