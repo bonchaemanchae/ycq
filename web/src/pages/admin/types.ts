@@ -93,3 +93,29 @@ export function latestRuns(runs: ReconRun[]): Map<string, ReconRun> {
   for (const r of runs) if (!latest.has(r.month)) latest.set(r.month, r);
   return latest;
 }
+
+export type BenchmarkResult = {
+  store: "postgres" | "mongo_collection" | "mongo_timeseries";
+  query_name: string;
+  runs: number;
+  cold_ms: number;
+  median_ms: number;
+  p95_ms: number;
+  storage_bytes: number | null;
+  index_bytes: number | null;
+  load_ms: number | null;
+  plan_output: string | null;
+  data: "hourly" | "destinations";   // Q1-Q4 use hourly summaries, Q5 destination lists
+};
+
+export type BenchmarkRun = { run_at: string | null; results: BenchmarkResult[] };
+
+export const STORE_LABEL: Record<BenchmarkResult["store"], string> = {
+  postgres: "PostgreSQL",
+  mongo_collection: "MongoDB collection",
+  mongo_timeseries: "MongoDB time-series",
+};
+
+export const ms = (v: number) => (v < 10 ? `${v.toFixed(2)} ms` : `${v.toFixed(1)} ms`);
+
+export const mb = (bytes: number | null) => (bytes == null ? "–" : `${(bytes / 1_048_576).toFixed(1)} MB`);

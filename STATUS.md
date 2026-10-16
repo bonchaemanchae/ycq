@@ -99,15 +99,18 @@ plans, and build the admin page."*
   `/admin/reconciliation`, admin role only): imports (`import_batch`), reject
   and warning reasons, rejected rows 50 per page (`rejected_trip`),
   reconciliation runs (`reconciliation_run`). Tests in `tests/test_admin.py`
-- [ ] Benchmark results on the Administration page (`GET /admin/benchmarks`)
-- [ ] Benchmark script. `benchmark_run` is empty. The brief's presentation part
-  asks for a *"rigorous comparison between the SQL and NoSQL implementations"*,
-  so record timings and query plans (`EXPLAIN ANALYZE`, MongoDB `explain`)
-- [ ] Include one `EXPLAIN ANALYZE` of a summary build, because `v_trip_flags`
-  groups the whole `trip_warning` table (review P7)
-- [ ] You can reuse `compare_stores()` in [api/planner.py](api/planner.py). It
-  already runs the same statistics in PostgreSQL and in MongoDB's time-series
-  collection, checks every value is equal and times both
+- [x] Benchmark script `etl/benchmark.py`: the hourly summaries copied into a
+  PostgreSQL table, a normal MongoDB collection and a MongoDB time-series
+  collection with equivalent indexes; four queries, plus a fifth for the Flow
+  Explorer's top 10 destinations (`od_summary` vs `origin_destination_snapshots`,
+  added to the master plan); a cold run plus 50 timed runs each (median and 95th
+  percentile), data and index size, load time and query plans (`EXPLAIN ANALYZE`,
+  MongoDB `explain`), saved to `benchmark_run` only if every store gives the same
+  answers. Tests in `tests/test_benchmark.py`
+- [x] Benchmark results on the Administration page (`GET /admin/benchmarks`)
+- [x] `EXPLAIN ANALYZE` of a summary build: `python etl/benchmark.py --explain-summary 2026-01`
+  (rolled back, changes nothing)
+- [ ] Run the benchmark on the final machine and write up the results for the report
 
 **Where:** [api/routers/admin.py](api/routers/admin.py),
 [web/src/pages/Admin.tsx](web/src/pages/Admin.tsx), scripts in [etl/](etl/).
