@@ -125,9 +125,9 @@ Each feature from the report has one backend file and one page:
 | Users and Security (Arif) | `api/auth.py` (replace `current_user`) | a new login page | — |
 | Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin` |
 
-The Dashboard, Flow Explorer and Administration pages call an `/example` route
-and print its JSON, to show the whole path works (page → API → database).
-Replace both with your real work.
+The Dashboard and Flow Explorer pages call an `/example` route and print its
+JSON, to show the whole path works (page → API → database). Replace both with
+your real work.
 
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
 in `dashboard.py` is served at http://localhost:8000/dashboard/busiest. Get
