@@ -1,18 +1,29 @@
 import type { Feature, FeatureCollection } from "geojson";
 import type { Layer, PathOptions } from "leaflet";
 import { useEffect, useState } from "react";
-import { GeoJSON, MapContainer, TileLayer } from "react-leaflet";
+import { GeoJSON, MapContainer, Pane, Polyline, TileLayer, Tooltip } from "react-leaflet";
 import { api } from "../api";
+
+// A straight line between two [lat, lon] points, e.g. from /zones/centroids.
+export type MapLine = {
+  from: [number, number];
+  to: [number, number];
+  weight: number;           // stroke width in pixels
+  color?: string;
+  tooltip?: string;
+};
 
 type Props = {
   // value per location_id; zones without a value are drawn grey
   values?: Record<number, number>;
   label?: string;
   onZoneClick?: (locationId: number) => void;
+  // optional lines drawn above the zones (Flow Explorer); omit for none
+  lines?: MapLine[];
 };
 
 // NYC taxi zone map shared by every page. Colour zones by passing values.
-export default function ZoneMap({ values = {}, label = "value", onZoneClick }: Props) {
+export default function ZoneMap({ values = {}, label = "value", onZoneClick, lines }: Props) {
   const [zones, setZones] = useState<FeatureCollection | null>(null);
   useEffect(() => {
     api<FeatureCollection>("/zones/geojson").then(setZones).catch(console.error);
@@ -45,6 +56,18 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick }: P
       {zones && (
         // key forces a redraw when the values change
         <GeoJSON key={JSON.stringify(values)} data={zones} style={style} onEachFeature={onEach} />
+      )}
+      {lines && (
+        // Own pane above the zones (overlayPane is 400), so the lines stay on
+        // top when the GeoJSON layer is redrawn. Only created when lines is passed.
+        <Pane name="flow-lines" style={{ zIndex: 450 }}>
+          {lines.map((l, i) => (
+            <Polyline key={`${i}:${l.to.join(",")}`} positions={[l.from, l.to]}
+                      pathOptions={{ color: l.color ?? "#1f4fbf", weight: l.weight, opacity: 0.8, lineCap: "round" }}>
+              {l.tooltip && <Tooltip sticky>{l.tooltip}</Tooltip>}
+            </Polyline>
+          ))}
+        </Pane>
       )}
     </MapContainer>
   );

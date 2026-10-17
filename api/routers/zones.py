@@ -27,6 +27,21 @@ def zones(conn=Depends(get_pg)):
                ORDER BY z.location_id""").fetchall()
 
 
+@router.get("/zones/centroids")
+def zone_centroids(conn=Depends(get_pg)):
+    """One point per zone with a shape, for drawing lines between zones.
+    ST_PointOnSurface is always inside the zone, unlike a centroid or the
+    middle of its bounding box (which can miss concave or split zones)."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        return cur.execute(
+            """SELECT location_id,
+                      round(ST_Y(p)::numeric, 5)::float AS lat,
+                      round(ST_X(p)::numeric, 5)::float AS lon
+               FROM (SELECT location_id, ST_PointOnSurface(geom) AS p
+                     FROM taxi_zone WHERE geom IS NOT NULL) z
+               ORDER BY location_id""").fetchall()
+
+
 @router.get("/zones/geojson")
 def zones_geojson(conn=Depends(get_pg)):
     """All zone shapes, simplified (~50 m) so the whole city is a small download."""
