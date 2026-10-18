@@ -95,9 +95,11 @@ token login, role checks and input validation."*
 benchmark four queries in PostgreSQL and two MongoDB collections using query
 plans, and build the admin page."*
 
-- [ ] Administration page and routes: imports (`import_batch`), rejections by
-  reason (`rejected_trip`), reconciliation runs (`reconciliation_run`; its
-  `details` column now lists exactly which fields differed), benchmark results
+- [x] Administration page and routes (`GET /admin/imports`, `/admin/rejected`,
+  `/admin/reconciliation`, admin role only): imports (`import_batch`), reject
+  and warning reasons, rejected rows 50 per page (`rejected_trip`),
+  reconciliation runs (`reconciliation_run`). Tests in `tests/test_admin.py`
+- [ ] Benchmark results on the Administration page (`GET /admin/benchmarks`)
 - [ ] Benchmark script. `benchmark_run` is empty. The brief's presentation part
   asks for a *"rigorous comparison between the SQL and NoSQL implementations"*,
   so record timings and query plans (`EXPLAIN ANALYZE`, MongoDB `explain`)
