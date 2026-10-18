@@ -281,6 +281,31 @@ python etl/reconcile.py        --month 2026-01
 - `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
   so re-running gives the same result.
 
+### Run the benchmark
+
+Compares PostgreSQL and MongoDB on the app's own questions. Run it after all
+months are loaded; it takes a few minutes and the results appear on the
+Administration page.
+
+```bash
+docker compose build loader                                   # picks up the script
+docker compose run --rm loader python etl/benchmark.py        # 50 timed runs per query
+docker compose run --rm loader python etl/benchmark.py --explain-summary 2026-01
+```
+
+It copies the summaries into three benchmark stores (`bench_zone_hour` in
+PostgreSQL, `bench_zone_hour_collection` and `bench_zone_hour_timeseries` in
+MongoDB) with equivalent indexes, then runs four queries against each: one zone
+for one hour, one zone over seven days, totals for every zone over a month,
+and the top 10 zones for a month. A fifth query tests the Flow Explorer, the
+case MongoDB was chosen for: the top 10 destinations for one origin zone,
+filtered and sorted from `od_summary` in PostgreSQL against one embedded
+document in `origin_destination_snapshots`. It records a cold run, the median
+and 95th percentile of the timed runs, data and index size, load time and each
+query plan, and saves them to `benchmark_run` only if every store gave the same
+answers. `--explain-summary` prints `EXPLAIN ANALYZE` of one month's summary
+build and changes nothing.
+
 ## Tests
 
 ```bash
@@ -319,7 +344,8 @@ api/        FastAPI backend: main.py, db.py, auth.py, planner.py, routers/ (one 
 web/        React + TypeScript (Vite) website: src/pages/ (one per feature), src/components/
 sql/        schema, applied in number order by etl/setup_db.py
 etl/        load_all (what the loader container runs), setup_db, load_zones,
-            import_month, build_aggregates, load_mongo, reconcile, delete_month
+            import_month, build_aggregates, load_mongo, reconcile, delete_month,
+            benchmark
 scripts/    download_data.py (TLC files + checksum check)
 tests/      pytest suite (uses its own ycq_test databases)
 data/       downloaded files (not in git)

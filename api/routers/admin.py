@@ -7,8 +7,7 @@ Served at /admin/... here and at /api/admin/... from the website.
   GET /admin/rejected         one batch's rejected rows, 50 per page,
                               optionally for one reason code
   GET /admin/reconciliation   recent PostgreSQL-vs-MongoDB reconciliation runs
-
-Benchmark results (benchmark_run) are added with the benchmark script.
+  GET /admin/benchmarks       the latest benchmark run (etl/benchmark.py)
 
 The query functions take a connection, so tests can call them directly
 without starting the web server.
@@ -118,6 +117,24 @@ def list_reconciliation(conn, limit: int = 50) -> list[dict]:
             (limit,)).fetchall()
 
 
+def latest_benchmark(conn) -> dict:
+    """Every result of the most recent benchmark run (one row per store and
+    query), with when it ran. Empty if the benchmark hasn't been run.
+
+    Each result says which data it measured: Q1 to Q4 use the hourly zone
+    summaries, Q5 the Flow Explorer's destination lists (etl/benchmark.py)."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """SELECT store, query_name, runs, cold_ms, median_ms, p95_ms,
+                      storage_bytes, index_bytes, load_ms, plan_output, run_at,
+                      CASE WHEN left(query_name, 2) = 'Q5' THEN 'destinations' ELSE 'hourly' END AS data
+               FROM benchmark_run
+               WHERE run_at = (SELECT max(run_at) FROM benchmark_run)
+               ORDER BY query_name, store""").fetchall()
+    run_at = rows[0]["run_at"] if rows else None
+    return {"run_at": run_at, "results": [{k: v for k, v in r.items() if k != "run_at"} for r in rows]}
+
+
 # --- routes --------------------------------------------------------------
 
 @router.get("/imports")
@@ -143,3 +160,9 @@ def reconciliation(limit: int = Query(50, ge=1, le=500),
                    conn=Depends(get_pg), _: User = Depends(require_admin)):
     """Recent reconciliation runs, newest first."""
     return list_reconciliation(conn, limit)
+
+
+@router.get("/benchmarks")
+def benchmarks(conn=Depends(get_pg), _: User = Depends(require_admin)):
+    """The latest benchmark run: timings, sizes and query plans per store."""
+    return latest_benchmark(conn)

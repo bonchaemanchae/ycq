@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import Benchmarks from "./admin/Benchmarks";
 import ImportsTable from "./admin/ImportsTable";
 import MonthBars from "./admin/MonthBars";
 import PipelineDiagram from "./admin/PipelineDiagram";
@@ -7,7 +8,7 @@ import ReasonBars from "./admin/ReasonBars";
 import Reconciliation from "./admin/Reconciliation";
 import RejectedRows from "./admin/RejectedRows";
 import SectionNav, { type Section } from "./admin/SectionNav";
-import { latestRuns, n, type ImportBatch, type ReconRun } from "./admin/types";
+import { latestRuns, n, type BenchmarkRun, type ImportBatch, type ReconRun } from "./admin/types";
 import "./admin/admin.css";
 
 const SECTIONS: Section[] = [
@@ -15,6 +16,7 @@ const SECTIONS: Section[] = [
   { id: "months", label: "Months" },
   { id: "reasons", label: "Reasons" },
   { id: "agreement", label: "Database check" },
+  { id: "benchmarks", label: "Benchmarks" },
   { id: "rejected", label: "Rejected rows" },
   { id: "files", label: "Imported files" },
 ];
@@ -22,18 +24,24 @@ const SECTIONS: Section[] = [
 // Administration, admin role only. Backend routes are in
 // api/routers/admin.py. The page answers three questions, top to bottom:
 // did the data load, what was removed or flagged and why, and do both
-// databases still agree. Benchmark results are added with the benchmark script.
+// databases still agree, and which database answers the app's questions faster.
 export default function Admin() {
   const [batches, setBatches] = useState<ImportBatch[] | null>(null);
   const [runs, setRuns] = useState<ReconRun[] | null>(null);
+  const [bench, setBench] = useState<BenchmarkRun | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
 
   useEffect(() => {
-    Promise.all([api<ImportBatch[]>("/admin/imports"), api<ReconRun[]>("/admin/reconciliation")])
-      .then(([b, r]) => {
+    Promise.all([
+      api<ImportBatch[]>("/admin/imports"),
+      api<ReconRun[]>("/admin/reconciliation"),
+      api<BenchmarkRun>("/admin/benchmarks"),
+    ])
+      .then(([b, r, bm]) => {
         setBatches(b);
         setRuns(r);
+        setBench(bm);
         if (b.length) setSelected(b[b.length - 1].import_batch_id);
       })
       .catch((e: Error) => setError(e.message));
@@ -48,7 +56,7 @@ export default function Admin() {
     </div>
   );
   if (error) return <section>{head}<div className="alert error">{error}</div></section>;
-  if (!batches || !runs) return <section>{head}<p className="muted">Loading…</p></section>;
+  if (!batches || !runs || !bench) return <section>{head}<p className="muted">Loading…</p></section>;
   if (batches.length === 0) return <section>{head}<p className="muted">No data has been imported yet.</p></section>;
 
   const latest = latestRuns(runs);
@@ -97,6 +105,9 @@ export default function Admin() {
 
       <div id="agreement" className="anchor">
         <Reconciliation batches={batches} runs={runs} latest={latest} />
+      </div>
+      <div id="benchmarks" className="anchor">
+        <Benchmarks run={bench} />
       </div>
       <div id="rejected" className="anchor">
         <RejectedRows key={batch.import_batch_id} batch={batch} />
