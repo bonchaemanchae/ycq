@@ -1,10 +1,14 @@
-# INF2003 Database Systems: YCQ Master Technical Specification
+# INF2003 Database Systems: Master Technical Specification and Architecture Plan (YCQ / Traxio)
 
 **Module:** INF2003 Database Systems  
 **Project:** Yellow Cab Query (YCQ), NYC TLC Fleet Decision Support System  
 **Alternate name in the supplied specification:** Traxio; the current application uses YCQ  
 **Code baseline reviewed:** `0ca7a72` (includes the four feature merges on 18 October 2026)  
 **Architecture:** PostgreSQL 16 + PostGIS 3.4, MongoDB 8.0, FastAPI and React
+
+**Original document version:** Final Master Plan (16 October 2026 Code Baseline).
+The original design remains the target specification; the later code baseline
+above is used only for implementation-status notes.
 
 > **How to read this document**
 >
@@ -13,6 +17,12 @@
 > for production. **Partial** means some layers exist. **Planned** means not yet
 > implemented. **Optional** means outside the committed core scope in this document.
 > Examples are illustrative unless explicitly identified as measured results.
+>
+> **This is a master plan, not just an inventory of finished code.** Planned
+> capabilities remain part of the intended design even when no implementation
+> exists yet. Current-code notes qualify their status; they do not remove them
+> from the group's goals. Original estimates and measurements are retained with
+> their evidence limitations rather than silently discarded.
 
 ## Contents
 
@@ -131,6 +141,24 @@ about every possible data property or the truth of the original TLC records.
 Recharts is **not installed**. Leaflet is the existing map library; choosing an
 additional chart library remains part of the unfinished dashboard work.
 
+### 2.3 Target architecture retained from the original plan
+
+The intended deployment starts all five services with
+`docker compose up -d --build`. PostgreSQL and MongoDB provide the dual-database
+framework; the loader coordinates ingestion and derived-data reconciliation.
+
+| Component     | Original target responsibility                                                                                 | Current implementation note                                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Loader        | Python 3.12 with Polars, PyArrow, psycopg, PyMongo and pyshp; process Parquet, CSV and shapefiles.             | The one-shot loader implements this pipeline.                                                                                     |
+| API           | FastAPI and Pydantic; read both databases and enforce JWT authentication and role-based access control (RBAC). | JWT authentication remains planned; the current identity is a development user.                                                   |
+| Web           | React 18, TypeScript, Vite, Leaflet and Recharts; interactive maps, chart dashboards and scenario management.  | Leaflet is installed; Recharts is the original proposed chart library, not an installed dependency or a finalized library choice. |
+| Reverse proxy | Nginx serves the normal-mode frontend on container port 80 and forwards `/api/*`.                              | Host access defaults to port 8080; development mode uses Vite instead.                                                            |
+
+The original phrase "100% data fidelity" expresses the goal that copied
+summaries agree completely. It is implemented through field-by-field
+reconciliation of the defined summary outputs, not proof that every raw record
+is correct.
+
 Sources: [Compose services](docker-compose.yml),
 [development overrides](docker-compose.dev.yml),
 [frontend dependencies](web/package.json) and [setup guide](README.md).
@@ -169,6 +197,31 @@ navigation pages. The current tab is **Activity Dashboard**.
 | Zone comparison                 | Compare two or three zones across activity metrics. | Optional; unassigned.                                          |
 | Independent scenario comparison | Compare two separately saved allocation plans.      | Optional; existing comparison is between versions of one plan. |
 
+### 3.4 Intended feature experience
+
+The following retains the original UI and behavioral scope independently of
+whether the corresponding feature is built.
+
+| Core feature             | Intended experience                                                                                                         |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| Login and roles          | Authentication page, JWT token management, and distinct analyst/admin permissions.                                          |
+| Operations Dashboard     | Landing view with a zone map colored by pickups or drop-offs, top zones, net-outflow imbalances and average metrics.        |
+| Activity Explorer        | Filtered zone map, hourly moving-average charts, weekday breakdown, ranked zone table and a Save View button.               |
+| Allocation Planner       | Fleet size, day, hour, borough and weight controls; zone scoring, largest-remainder allocation and manual taxi adjustments. |
+| Saved plans (SQL CRUD)   | Create, open, rename, compare versions and save immutable versions; deleting the parent removes its history.                |
+| Saved views (NoSQL CRUD) | Save, list, open, rename and delete custom filter setups, isolated by owner.                                                |
+
+| Extended or optional feature   | Intended experience                                                                                                |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| Flow Explorer (extended)       | Origin, month, day-type and time-bucket filters; top-ten destinations with trip share, fare and distance metrics.  |
+| Administration (extended)      | Import history, accepted/warned/rejected counts, rejection reasons, reconciliation status and database benchmarks. |
+| Zone comparison (optional)     | Side-by-side metrics for two or three taxi zones.                                                                  |
+| Scenario comparison (optional) | Side-by-side comparison of two independent saved plans, beyond comparing versions of one plan.                     |
+
+Operations Dashboard and Activity Explorer are retained as design concepts within
+the activity scope. How they are arranged within the Activity Dashboard tab
+remains a presentation decision, not a reason to drop either capability.
+
 Sources: [dashboard](web/src/pages/Dashboard.tsx),
 [planner](web/src/pages/Planner.tsx), [flows](web/src/pages/Flows.tsx),
 [administration](web/src/pages/Admin.tsx) and
@@ -184,7 +237,7 @@ Trip data comes from the official NYC TLC yellow taxi files for Q1 2026.
 Downloads are checksum-pinned. Prefixes below identify the expected trip files;
 the downloader contains their full SHA-256 hashes.
 
-| Trip file                         |  Raw rows | SHA-256 prefix     |
+| Trip file                         | Raw rows  | SHA-256 prefix     |
 | --------------------------------- | --------: | ------------------ |
 | `yellow_tripdata_2026-01.parquet` | 3,724,889 | `8b3933fe6f0d7b6d` |
 | `yellow_tripdata_2026-02.parquet` | 3,399,866 | `5352ca800f29c40a` |
@@ -195,8 +248,17 @@ the downloader contains their full SHA-256 hashes.
 | `taxi_zone_lookup.csv` | 265 zone lookup rows | Zones 264 and 265 have no map shape.            |
 | `taxi_zones.zip`       | Shapes for 263 zones | Convert EPSG:2263 to EPSG:4326 through PostGIS. |
 
-File byte sizes are omitted because they are not needed to identify the pinned
-inputs and must not be confused with database or index sizes.
+#### Original file-size estimates
+
+| Trip month | Size stated in the original plan |
+| ---------- | -------------------------------: |
+| January    | 61.2 MB                          |
+| February   | Approximately 55 MB              |
+| March      | Approximately 63 MB              |
+
+These original estimates are retained for planning context. Their units and
+exact byte counts have not been reverified; use the checksum to identify each
+file. Download size is distinct from database, index and Docker storage.
 
 Sources: [downloader](scripts/download_data.py) and [zone loader](etl/load_zones.py).
 
@@ -249,6 +311,20 @@ The first applicable row rule wins.
 Equal pickup and drop-off timestamps are **not** rejected by R2; they can be
 accepted with warning W9.
 
+#### Original rule rationale
+
+| Rule | Why the rule exists                                                                                    |
+| ---- | ------------------------------------------------------------------------------------------------------ |
+| R1   | Missing timestamps prevent reliable placement in time.                                                 |
+| R2   | Inverted timestamps produce an invalid negative-duration trip.                                         |
+| R3   | The pickup belongs to another month's dataset.                                                         |
+| R6   | A duration over 24 hours may indicate a meter left running or a corrupted record.                      |
+| R4   | An unmappable pickup cannot contribute to the intended zone-map statistics.                            |
+| R8   | Unknown lookup values would violate foreign-key constraints.                                           |
+| R9   | Non-finite, out-of-range or invalid passenger values cannot safely enter the constrained trip table.   |
+| R7   | Reject the negative correction in a reversal pair rather than double-counting it as ordinary activity. |
+| R5   | Refuse repeat file/month ingestion rather than duplicate an import.                                    |
+
 ### 4.4 Warning rules
 
 Warnings do not reject the trip. They exclude affected values from the relevant
@@ -277,21 +353,21 @@ and [W9 migration](sql/008_w9_dropoff_not_recorded.sql).
 
 #### Import outcomes
 
-| Month        |      Rows read |       Accepted |   Rejected | Acceptance rate |
+| Month        | Rows read      | Accepted       | Rejected   | Acceptance rate |
 | ------------ | -------------: | -------------: | ---------: | --------------: |
-| January      |      3,724,889 |      3,683,870 |     41,019 |          98.90% |
-| February     |      3,399,866 |      3,371,085 |     28,781 |          99.15% |
-| March        |      3,952,451 |      3,927,859 |     24,592 |          99.38% |
-| **Q1 total** | **11,077,206** | **10,982,814** | **94,392** |      **99.15%** |
+| January      | 3,724,889      | 3,683,870      | 41,019     | 98.90%          |
+| February     | 3,399,866      | 3,371,085      | 28,781     | 99.15%          |
+| March        | 3,952,451      | 3,927,859      | 24,592     | 99.38%          |
+| **Q1 total** | **11,077,206** | **10,982,814** | **94,392** | **99.15%**      |
 
 #### Quality flags and derived documents
 
 | Month        | Reversals rejected (R7) | Accepted trips with warnings | Hourly documents | Flow snapshots |
 | ------------ | ----------------------: | ---------------------------: | ---------------: | -------------: |
-| January      |                  35,048 |                      191,613 |          195,672 |          2,478 |
-| February     |                  23,705 |                      182,215 |          176,736 |          2,483 |
-| March        |                  18,294 |                      188,862 |          195,409 |          2,491 |
-| **Q1 total** |              **77,047** |                  **562,690** |      **567,817** |      **7,452** |
+| January      | 35,048                  | 191,613                      | 195,672          | 2,478          |
+| February     | 23,705                  | 182,215                      | 176,736          | 2,483          |
+| March        | 18,294                  | 188,862                      | 195,409          | 2,491          |
+| **Q1 total** | **77,047**              | **562,690**                  | **567,817**      | **7,452**      |
 
 - R7 rows are a subset of rejected rows, not an additional rejection total.
 - A warned trip can have several warning codes; warned-trip counts are not counts
@@ -388,7 +464,8 @@ Sources: [users](sql/003_users.sql), [trips](sql/004_trips.sql),
 [immutable history and zones](sql/012_plan_integrity.sql).
 
 Database storage is environment-dependent. The supplied document's fixed
-"2.8 GB for Q1" claim is not treated as a verified baseline.
+"2.8 GB for Q1" claim is retained as an **original reported estimate**, not a
+verified or portable storage requirement.
 
 ---
 
@@ -434,25 +511,27 @@ MongoDB stores `timestamp` as a BSON date, represented here as an ISO string.
   "localDate": "2026-01-05",
   "localHour": 8,
   "isoDayOfWeek": 1,
-  "pickups": 10,
-  "dropoffs": 6,
-  "imbalance": 4,
-  "fareSum": 100.0,
-  "fareTripCount": 8,
-  "averageFare": 12.5,
-  "distanceSum": 18.0,
-  "distanceTripCount": 9,
-  "averageDistance": 2.0,
-  "durationSumSec": 5400,
-  "durationTripCount": 9,
-  "averageDurationSec": 600.0
+  "pickups": 369,
+  "dropoffs": 245,
+  "imbalance": 124,
+  "fareSum": 3773.50,
+  "fareTripCount": 322,
+  "averageFare": 11.7189,
+  "distanceSum": 714.25,
+  "distanceTripCount": 364,
+  "averageDistance": 1.9622,
+  "durationSumSec": 232074,
+  "durationTripCount": 365,
+  "averageDurationSec": 635.8192
 }
 ```
 
 #### Destination snapshot
 
-The short list below illustrates a slice with only one destination; real slices
-can embed up to ten. Shares are relative to all trips in the slice.
+The original examples are retained here as supplied illustrations, not verified
+records or arithmetic fixtures. The destination list below shows only one entry
+of a longer list; real slices can embed up to ten. Shares are relative to all
+trips in the slice.
 
 ```json
 {
@@ -461,17 +540,17 @@ can embed up to ten. Shares are relative to all trips in the slice.
   "month": "2026-01",
   "dayType": "weekday",
   "timeBucket": "am_peak",
-  "totalTrips": 10,
-  "destinationCount": 1,
+  "totalTrips": 12450,
+  "destinationCount": 185,
   "destinations": [
     {
       "rank": 1,
       "zoneId": 236,
       "zoneName": "Upper East Side North",
       "borough": "Manhattan",
-      "trips": 10,
-      "share": 1.0,
-      "averageFare": 14.2,
+      "trips": 1420,
+      "share": 0.1141,
+      "averageFare": 14.20,
       "averageDistance": 2.35,
       "averageDurationSec": 780
     }
@@ -499,12 +578,12 @@ See [flow query semantics](api/flows.py).
 | `min_sample`             | Minimum historical pickups for eligibility | Default 30; non-negative           |
 | `note`                   | Optional version note                      | Up to 500 characters               |
 
-| Weight parameter | Metric           |  Default |
+| Weight parameter | Metric           | Default  |
 | ---------------- | ---------------- | -------: |
-| `w_pickup`       | Pickup activity  |     0.50 |
-| `w_imbalance`    | Net outflow      |     0.25 |
-| `w_consistency`  | Consistency      |     0.15 |
-| `w_fare`         | Median fare      |     0.10 |
+| `w_pickup`       | Pickup activity  | 0.50     |
+| `w_imbalance`    | Net outflow      | 0.25     |
+| `w_consistency`  | Consistency      | 0.15     |
+| `w_fare`         | Median fare      | 0.10     |
 | **Total**        | **Must equal 1** | **1.00** |
 
 ### 7.2 Scoring and fleet split
@@ -550,6 +629,42 @@ separate version-creation request.
 
 Sources: [planner logic](api/planner.py), [request models and routes](api/routers/plans.py)
 and [median-fare view](sql/010_zone_weekday_hour_fare.sql).
+
+### 7.3 Original specification notation
+
+The original mathematical model remains part of the plan. For zone `z` in
+hour `h`:
+
+```text
+A_z    = mean historical pickups
+O_z    = mean historical (pickups - drop-offs), unclipped
+CV_z   = population standard deviation of pickups / mean pickups
+C_z    = 1 / (1 + CV_z)
+F_z    = median eligible metered fare
+P(M_z) = cume_dist(M_z), for M in {A, O, C, F}
+
+S_z = w_1 * P(A_z) + w_2 * P(O_z) + w_3 * P(C_z) + w_4 * P(F_z)
+
+E_z = fleet_size * S_z / sum(selected S_k)
+I_z = floor(E_z)
+R_z = E_z - I_z
+L   = fleet_size - sum(I_z)
+```
+
+Distribute the `L` remaining taxis one each to the largest remainders, with
+deterministic tie-breaking. Defaults are `w_1 = 0.50`, `w_2 = 0.25`,
+`w_3 = 0.15`, `w_4 = 0.10`; their sum must equal 1.
+
+| Original conceptual input  | Current API representation                           |
+| -------------------------- | ---------------------------------------------------- |
+| `weekday`                  | `iso_dow`                                            |
+| `hour_from`, `hour_to`     | `start_hour`, `end_hour`                             |
+| `boroughs` (names)         | `borough_ids` (identifiers)                          |
+| `min_sample_size`          | `min_sample`                                         |
+| `weights` (`w_1` to `w_4`) | `w_pickup`, `w_imbalance`, `w_consistency`, `w_fare` |
+
+Both vocabularies are retained: the first explains the original design; the
+second prevents mistaking conceptual names for fields accepted by today's API.
 
 ---
 
@@ -628,19 +743,51 @@ These routes require the admin role and read PostgreSQL records. There is **no
 POST reconciliation/rebuild route**; reconciliation and benchmark execution are
 scripts, not actions supplied by these GET endpoints.
 
-### 8.6 Proposed routes, not current contracts
+### 8.6 Planned API from the original specification
 
-The supplied specification proposes the following routes. They are not
-implemented or promised final API shapes:
+These original API requirements remain in the master plan. They describe the
+intended interface, not a claim that today's server implements them. Paths below
+use the original website-facing `/api` prefix.
 
-| Proposed backend path | Intended purpose                        |
-| --------------------- | --------------------------------------- |
-| `/auth/login`         | Password verification and JWT issuance. |
-| `/auth/me`            | Authenticated profile.                  |
-| `/dashboard`          | Activity KPIs and rankings.             |
-| `/activity/zones`     | Filtered zone activity.                 |
-| `/activity/hourly`    | Hourly activity and moving averages.    |
-| `/activity/weekday`   | Weekday distributions.                  |
+| Method | Planned website path        | Intended access | Target store         |
+| ------ | --------------------------- | --------------- | -------------------- |
+| POST   | `/api/auth/login`           | Public          | PostgreSQL           |
+| GET    | `/api/auth/me`              | Authenticated   | PostgreSQL           |
+| GET    | `/api/dashboard`            | Authenticated   | MongoDB / PostgreSQL |
+| GET    | `/api/activity/zones`       | Authenticated   | MongoDB              |
+| GET    | `/api/activity/hourly`      | Authenticated   | MongoDB              |
+| GET    | `/api/activity/weekday`     | Authenticated   | MongoDB              |
+| POST   | `/api/admin/reconciliation` | Admin           | Both databases       |
+
+| Planned endpoint            | Original intended behavior                                                         |
+| --------------------------- | ---------------------------------------------------------------------------------- |
+| Login                       | Verify an Argon2 password hash and issue a JWT.                                    |
+| Current profile             | Return the authenticated session user's profile.                                   |
+| Dashboard                   | Return KPI metrics and top zones.                                                  |
+| Zone activity               | Return activity metrics with filter parameters.                                    |
+| Hourly activity             | Return an hourly series with moving averages.                                      |
+| Weekday activity            | Return weekday distributions.                                                      |
+| Admin reconciliation action | Trigger a month rebuild/reconciliation workflow; GET continues to provide history. |
+
+The final request bodies, permissions and rebuild semantics still need agreement.
+Retaining the original POST proposal does not add a working rebuild endpoint.
+
+### 8.7 Original target behavior versus current behavior
+
+- **Authentication:** the original plan protects boroughs, zones and activity
+  routes with authenticated access. Current geography and example routes remain
+  public; that implementation difference does not remove the target requirement.
+- **Plan creation:** the original `/api/plans` description combines creation with
+  version 1. The current API creates the named parent first and saves a version
+  separately. Preserve the original desired creation experience as a design
+  requirement to clarify, rather than claiming it is already implemented.
+- **Saved-view updates:** the original `/api/views/{id}` description says
+  "update or delete saved view configuration." Current PATCH only renames.
+  Broader configuration editing remains an original design intent whose exact
+  scope needs confirmation.
+- **Admin execution:** the original design includes benchmark suites and a
+  reconciliation/rebuild action. The current page displays results; scripts
+  perform execution. UI-triggered execution is not currently implemented.
 
 Sources: [route registration](api/main.py), [health](api/routers/health.py),
 [geography](api/routers/zones.py), [dashboard](api/routers/dashboard.py),
@@ -685,18 +832,18 @@ numbers. They are retained for traceability, not as evidence of current performa
 
 | Planner statistics scope      | Reported rows | Reported PostgreSQL latency |
 | ----------------------------- | ------------: | --------------------------- |
-| Manhattan, Monday 07:00-09:00 |         1,035 | 8-17 ms                     |
-| All boroughs, Monday full day |        31,560 | 57-101 ms                   |
+| Manhattan, Monday 07:00-09:00 | 1,035         | 8-17 ms                     |
+| All boroughs, Monday full day | 31,560        | 57-101 ms                   |
 
 | Same scope                    | Reported MongoDB without index | Reported MongoDB with index |
 | ----------------------------- | -----------------------------: | --------------------------: |
-| Manhattan, Monday 07:00-09:00 |                         200 ms |                       96 ms |
-| All boroughs, Monday full day |                         910 ms |                      435 ms |
+| Manhattan, Monday 07:00-09:00 | 200 ms                         | 96 ms                       |
+| All boroughs, Monday full day | 910 ms                         | 435 ms                      |
 
 | Historical storage claim           | Data only | Including indexes |
 | ---------------------------------- | --------: | ----------------: |
-| MongoDB time-series hourly records |   29.5 MB |             45 MB |
-| PostgreSQL hourly table            |     57 MB |             89 MB |
+| MongoDB time-series hourly records | 29.5 MB   | 45 MB             |
+| PostgreSQL hourly table            | 57 MB     | 89 MB             |
 
 The supplied document also reports approximately 35.2 MB for MongoDB application
 documents without defining the measurement. It must not be compared directly
@@ -720,6 +867,18 @@ results, and distinguish hourly aggregation from embedded destination reads.
 Sources: [benchmark implementation](etl/benchmark.py),
 [benchmark tests](tests/test_benchmark.py) and
 [benchmark usage](README.md#run-the-benchmark).
+
+### 9.4 Original benchmark interpretation retained for evaluation
+
+The original document attributes PostgreSQL's reported speed advantage to
+B-tree indexes on structured numeric columns and MongoDB's reported slower
+aggregation to time-series bucket decompression. It also presents MongoDB
+time-series compression as a storage-efficiency advantage.
+
+These explanations remain **hypotheses and original reported conclusions to
+evaluate**, not established causes or universal database properties. Keep the
+original comparison goal: test latency and storage trade-offs with equivalent
+answers and query plans, including the embedded-destination use case.
 
 ---
 
@@ -748,7 +907,10 @@ implementation task. See [application navigation](web/src/App.tsx).
 ### 10.3 Decisions and report requirements
 
 - **Database roles:** dedicated PostgreSQL read/write roles are a proposed
-  security design, not installed by an existing migration. `013` already defines
+  security design, not installed by an existing migration. The original target
+  names are `ycq_read` (SELECT only) and `ycq_write` (write-capable API role).
+  The original instruction to execute `sql/013` cannot implement those roles:
+  `013` already defines
   R8/R9 rejection codes. Any new role migration needs the next unused number
   (currently `014`); administrative writes must remain possible.
 - **Cross-database ownership:** saved-view ownership is enforced by application
@@ -763,6 +925,11 @@ implementation task. See [application navigation](web/src/App.tsx).
   packaging against the module brief.
 - **Documentation consistency:** README and STATUS contain stale feature-status
   statements; current source code takes precedence for implemented behavior.
+
+For intended future scope, this master plan remains the reference. The current
+code is evidence of implementation progress, not a basis for deleting planned
+features. Optional comparisons remain optional rather than silently becoming
+mandatory work.
 
 Sources: [R8/R9 migration](sql/013_r8_r9_rejects.sql),
 [project status](STATUS.md) and [working conventions](README.md#working-on-the-project).
