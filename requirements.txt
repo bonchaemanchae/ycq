@@ -8,3 +8,7 @@ requests
 pytest
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+argon2-cffi==25.1.0
+PyJWT==2.15.1
+# for FastAPI's TestClient in the tests
+httpx==0.28.1

@@ -52,9 +52,9 @@ buttons."*
 - [ ] Saved Views: create, rename and delete routes (listing already exists),
   always filtered by the logged-in owner
 - [ ] Save and open buttons on the Dashboard and Flow Explorer pages
-- [ ] When a user is deleted (with Arif): delete their MongoDB views **first**,
-  then the PostgreSQL user. PostgreSQL's cascade can't reach MongoDB, and doing
-  it in the other order can leave orphaned views (review §3.2)
+- [x] When a user is deleted: their MongoDB views are deleted **first**, then
+  the PostgreSQL user (`api/users.py`, `DELETE /admin/users/{id}`). Uses
+  `delete_views_for_user` from `api/saved_views.py`
 
 **Where:** [api/routers/flows.py](api/routers/flows.py),
 [web/src/pages/Flows.tsx](web/src/pages/Flows.tsx),
@@ -73,14 +73,18 @@ the database.
 *Report: "Login with analyst and administrator roles … Argon2 password hashing,
 token login, role checks and input validation."*
 
-- [ ] Argon2 password hashing and a login route that returns a JWT. The secret
-  is in `JWT_SECRET`, already passed to the API container
-- [ ] Replace `current_user` in [api/auth.py](api/auth.py) so it reads the
-  token. Every route already depends on it, so nothing else has to change.
-  Until then, every request is the dev user `dev@ycq.local`
-- [ ] Role checks (analyst / admin), for example on the Administration routes
-- [ ] A login page: add it to `PAGES` in [web/src/App.tsx](web/src/App.tsx),
-  and send the token from [web/src/api.ts](web/src/api.ts)
+- [x] Argon2id password hashing and `POST /auth/login` returning an 8-hour JWT
+  signed with `JWT_SECRET` (the API refuses to start if it's under 32
+  characters). `GET /auth/me`. Default accounts from `.env`
+  (`scripts/seed_users.py`, run by the loader)
+- [x] `current_user` in [api/auth.py](api/auth.py) reads the token and reloads
+  the user and roles from PostgreSQL on every request. The dev user is gone
+- [x] Role checks: routers are grouped in `api/main.py` (public / analyst or
+  admin / admin only); `tests/test_auth.py` calls every route to check it
+- [x] Login page ([web/src/pages/Login.tsx](web/src/pages/Login.tsx)), token
+  sent from [web/src/api.ts](web/src/api.ts), Administration only shown to admins
+- [x] Deleting a user across both databases, with a Users section on the
+  Administration page (review §3.2)
 - [ ] PostgreSQL read/write roles, if you build them. **Use `sql/014_…`:**
   `012` and `013` are now taken. Remember the admin rebuild (review §3.1): the
   rebuild writes `reconciliation_run` and the summaries, so either give admin
@@ -223,7 +227,7 @@ Everything the report lists for this part is built and tested.
 | P7 Blocking refresh, root MongoDB login, unpinned zone files, Unknown/N/A boroughs | Fixed |
 | P7 `v_trip_flags` cost | Open: an `EXPLAIN ANALYZE` for the benchmark write-up (Sean) |
 | §3.1 Write role vs admin rebuild | Open (Arif / Sean): those parts aren't built yet |
-| §3.2 Deleting a user across two databases | Open (Arif / Caleb) |
+| §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user, sweep) |
 | §3.3 MongoDB side lighter than PostgreSQL | In progress: Dashboard and Flow Explorer (Kessler, Caleb) |
 | §3.4 "Why MongoDB" justification | Open: report (everyone) |
 

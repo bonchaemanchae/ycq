@@ -64,6 +64,10 @@ services:
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:-change-me-app}
       YCQ_MONTHS: ${YCQ_MONTHS:-2026-01 2026-02 2026-03}
       YCQ_DOWNLOAD: ${YCQ_DOWNLOAD:-1}
+      # Passwords of the default accounts (scripts/seed_users.py); unset = not created.
+      YCQ_ADMIN_PASSWORD: ${YCQ_ADMIN_PASSWORD:-}
+      YCQ_ANALYST1_PASSWORD: ${YCQ_ANALYST1_PASSWORD:-}
+      YCQ_ANALYST2_PASSWORD: ${YCQ_ANALYST2_PASSWORD:-}
     volumes:
       - ./data:/app/data
     depends_on:
@@ -81,7 +85,12 @@ services:
       <<: *db_env
       MONGO_USER: ${MONGO_APP_USER:-ycq_app}
       MONGO_PASSWORD: ${MONGO_APP_PASSWORD:-change-me-app}
-      JWT_SECRET: ${JWT_SECRET:-change-me}
+      # The default accounts' passwords are only for the loader.
+      YCQ_ADMIN_PASSWORD: ""
+      YCQ_ANALYST1_PASSWORD: ""
+      YCQ_ANALYST2_PASSWORD: ""
+      # Signs login tokens. The api refuses to start if it is under 32 characters.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
