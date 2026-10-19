@@ -248,17 +248,17 @@ the downloader contains their full SHA-256 hashes.
 | `taxi_zone_lookup.csv` | 265 zone lookup rows | Zones 264 and 265 have no map shape.            |
 | `taxi_zones.zip`       | Shapes for 263 zones | Convert EPSG:2263 to EPSG:4326 through PostGIS. |
 
-#### Original file-size estimates
+#### File sizes
 
-| Trip month | Size stated in the original plan |
-| ---------- | -------------------------------: |
-| January    | 61.2 MB                          |
-| February   | Approximately 55 MB              |
-| March      | Approximately 63 MB              |
+Measured on the checksum-verified files (19 October 2026).
 
-These original estimates are retained for planning context. Their units and
-exact byte counts have not been reverified; use the checksum to identify each
-file. Download size is distinct from database, index and Docker storage.
+| Trip month |      Bytes | Size     | Original plan estimate |
+| ---------- | ---------: | -------: | ---------------------- |
+| January    | 64,165,080 | 61.2 MiB | 61.2 MB                |
+| February   | 58,683,353 | 56.0 MiB | Approximately 55 MB    |
+| March      | 67,891,249 | 64.7 MiB | Approximately 63 MB    |
+
+Download size is distinct from database, index and Docker storage.
 
 Sources: [downloader](scripts/download_data.py) and [zone loader](etl/load_zones.py).
 
@@ -463,9 +463,11 @@ Sources: [users](sql/003_users.sql), [trips](sql/004_trips.sql),
 [complete hours](sql/011_plan_hours_complete.sql) and
 [immutable history and zones](sql/012_plan_integrity.sql).
 
-Database storage is environment-dependent. The supplied document's fixed
-"2.8 GB for Q1" claim is retained as an **original reported estimate**, not a
-verified or portable storage requirement.
+**Measured database size:** 2,911 MB for the `ycq` PostgreSQL database with all
+three months loaded (`pg_database_size`, 19 October 2026). This includes the
+benchmark's copy of the hourly summaries (`bench_zone_hour`, 82.4 MB with
+indexes). It confirms the original "2.8 GB for Q1" estimate. Exact sizes vary
+slightly between machines.
 
 ---
 
@@ -824,9 +826,64 @@ only after the equivalent-answer checks pass.
 The first timing is called "cold" in the implementation; that label does not
 establish that operating-system or database caches were flushed.
 
-### 9.2 Historical numbers supplied with this document
+### 9.2 Measured results
 
-**Unverified historical figures, not final benchmark results.** The supplied
+**Run:** 17 October 2026, `python etl/benchmark.py` with the default 50 timed
+runs per question, on Sean's Windows laptop (Docker Desktop, default container
+limits), all three months loaded. Every store gave the same answer to every
+question; the script saves nothing otherwise. The 95th percentiles, first runs
+and query plans for this run are on the Administration page.
+
+| Question                            | PostgreSQL | MongoDB collection | MongoDB time-series |
+| ----------------------------------- | ---------: | -----------------: | ------------------: |
+| Q1 one zone, one hour               | **0.21 ms** |            0.40 ms |             0.74 ms |
+| Q2 one zone, seven days             | **0.39 ms** |            1.17 ms |             1.38 ms |
+| Q3 every zone, one month            | **31.5 ms** |           167.6 ms |            347.0 ms |
+| Q4 top 10 zones, one month          | **23.1 ms** |           140.6 ms |            212.6 ms |
+| Q5 top 10 destinations, one origin  | **0.25 ms** |            0.42 ms |      not applicable |
+
+Median times. Q1 to Q4 use the hourly zone summaries (567,817 rows or
+documents in each store); Q5 compares PostgreSQL's `od_summary` with MongoDB's
+embedded `origin_destination_snapshots`.
+
+| Hourly store (Q1 to Q4) | Data    | Indexes | Total   | Time to load |
+| ----------------------- | ------: | ------: | ------: | -----------: |
+| PostgreSQL              | 57.7 MB | 24.7 MB | 82.4 MB |        4.9 s |
+| MongoDB collection      | 23.8 MB | 19.4 MB | 43.2 MB |       11.5 s |
+| MongoDB time-series     | 25.8 MB |  9.0 MB | 34.8 MB |       22.4 s |
+
+**What the run shows**
+
+- PostgreSQL answered every question fastest: about 2x faster on single-zone
+  lookups and 5 to 11x faster on month-wide totals.
+- The time-series collection used the least disk space and was the slowest to
+  query and to load.
+- Q5, the case MongoDB was chosen for, was also faster in PostgreSQL. At this
+  size both are small indexed lookups, so the embedded-snapshot design is
+  justified by simplicity (one document read, no sorting) and space, not by
+  speed.
+
+**Limits of this evidence**
+
+- **One machine, one user.** Timings differ between machines; quote the run
+  from the machine used for the demonstration. Queries ran one at a time.
+- **Disk sizes vary between runs.** MongoDB measured space straight after
+  loading; an earlier run on the same machine gave 39.7 MB (collection) and
+  24.9 MB (time-series) in total. MongoDB compresses data on disk and
+  PostgreSQL does not, so sizes reflect compression as well as layout.
+- **"First run" is not a guaranteed cold start**, because the operating system
+  may still hold the data in memory.
+- **Fixed inputs.** Each question repeats the same zone and period, so repeated
+  lookups are served from memory.
+- **Times include the Python drivers.** MongoDB's `executionTimeMillis` in the
+  stored query plans separates database time from driver time.
+- **Load times** start once the database connections are open.
+
+#### Superseded estimates
+
+These figures came with the original document, without a machine or run
+record. They are kept for traceability and replaced by the measured results
+above. The supplied
 document does not identify a machine, run record or reproducible output for these
 numbers. They are retained for traceability, not as evidence of current performance.
 
@@ -849,18 +906,18 @@ The supplied document also reports approximately 35.2 MB for MongoDB application
 documents without defining the measurement. It must not be compared directly
 with the hourly-only storage figures above.
 
-Do not infer universal PostgreSQL speed superiority, MongoDB compression savings
-or a specific cause of latency from these unverified figures. Final conclusions
-must identify the machine, dataset, indexes, repetitions, query plans and measured
-results, and distinguish hourly aggregation from embedded destination reads.
+Do not draw conclusions from these superseded figures; use the measured results
+in 9.2.
 
 ### 9.3 Current evidence boundary
 
-- The benchmark script and Administration display are implemented.
-- No production-data benchmark run was present in the local application database
-  during environment verification on 19 October 2026.
-- Tests against small sample data validate behavior; they are not final
-  performance measurements.
+- The benchmark script and Administration display are implemented, and the
+  measured run in 9.2 used the full January to March 2026 data.
+- Results are stored in each machine's own database, which is not shared
+  through git. A machine where the script hasn't run shows "not run yet" on the
+  Administration page.
+- Tests against small sample data validate behavior; they are not performance
+  measurements.
 - `--explain-summary` supports an `EXPLAIN ANALYZE` of a summary build inside a
   rolled-back transaction.
 
@@ -875,10 +932,13 @@ B-tree indexes on structured numeric columns and MongoDB's reported slower
 aggregation to time-series bucket decompression. It also presents MongoDB
 time-series compression as a storage-efficiency advantage.
 
-These explanations remain **hypotheses and original reported conclusions to
-evaluate**, not established causes or universal database properties. Keep the
-original comparison goal: test latency and storage trade-offs with equivalent
-answers and query plans, including the embedded-destination use case.
+These explanations remain **hypotheses to check against the stored query
+plans**, not established causes or universal database properties. The measured
+run in 9.2 agrees with the direction of both claims: PostgreSQL was faster on
+every question, and the time-series collection used the least space but was
+slowest to aggregate. Confirming the causes means reading the plans, for
+example a bucket-unpacking stage in the time-series aggregation and parallel
+aggregation in PostgreSQL.
 
 ---
 
