@@ -237,7 +237,7 @@ Trip data comes from the official NYC TLC yellow taxi files for Q1 2026.
 Downloads are checksum-pinned. Prefixes below identify the expected trip files;
 the downloader contains their full SHA-256 hashes.
 
-| Trip file                         | Raw rows  | SHA-256 prefix     |
+| Trip file                         |  Raw rows | SHA-256 prefix     |
 | --------------------------------- | --------: | ------------------ |
 | `yellow_tripdata_2026-01.parquet` | 3,724,889 | `8b3933fe6f0d7b6d` |
 | `yellow_tripdata_2026-02.parquet` | 3,399,866 | `5352ca800f29c40a` |
@@ -252,9 +252,9 @@ the downloader contains their full SHA-256 hashes.
 
 | Trip month | Size stated in the original plan |
 | ---------- | -------------------------------: |
-| January    | 61.2 MB                          |
-| February   | Approximately 55 MB              |
-| March      | Approximately 63 MB              |
+| January    |                          61.2 MB |
+| February   |              Approximately 55 MB |
+| March      |              Approximately 63 MB |
 
 These original estimates are retained for planning context. Their units and
 exact byte counts have not been reverified; use the checksum to identify each
@@ -353,21 +353,21 @@ and [W9 migration](sql/008_w9_dropoff_not_recorded.sql).
 
 #### Import outcomes
 
-| Month        | Rows read      | Accepted       | Rejected   | Acceptance rate |
+| Month        |      Rows read |       Accepted |   Rejected | Acceptance rate |
 | ------------ | -------------: | -------------: | ---------: | --------------: |
-| January      | 3,724,889      | 3,683,870      | 41,019     | 98.90%          |
-| February     | 3,399,866      | 3,371,085      | 28,781     | 99.15%          |
-| March        | 3,952,451      | 3,927,859      | 24,592     | 99.38%          |
-| **Q1 total** | **11,077,206** | **10,982,814** | **94,392** | **99.15%**      |
+| January      |      3,724,889 |      3,683,870 |     41,019 |          98.90% |
+| February     |      3,399,866 |      3,371,085 |     28,781 |          99.15% |
+| March        |      3,952,451 |      3,927,859 |     24,592 |          99.38% |
+| **Q1 total** | **11,077,206** | **10,982,814** | **94,392** |      **99.15%** |
 
 #### Quality flags and derived documents
 
 | Month        | Reversals rejected (R7) | Accepted trips with warnings | Hourly documents | Flow snapshots |
 | ------------ | ----------------------: | ---------------------------: | ---------------: | -------------: |
-| January      | 35,048                  | 191,613                      | 195,672          | 2,478          |
-| February     | 23,705                  | 182,215                      | 176,736          | 2,483          |
-| March        | 18,294                  | 188,862                      | 195,409          | 2,491          |
-| **Q1 total** | **77,047**              | **562,690**                  | **567,817**      | **7,452**      |
+| January      |                  35,048 |                      191,613 |          195,672 |          2,478 |
+| February     |                  23,705 |                      182,215 |          176,736 |          2,483 |
+| March        |                  18,294 |                      188,862 |          195,409 |          2,491 |
+| **Q1 total** |              **77,047** |                  **562,690** |      **567,817** |      **7,452** |
 
 - R7 rows are a subset of rejected rows, not an additional rejection total.
 - A warned trip can have several warning codes; warned-trip counts are not counts
@@ -514,7 +514,7 @@ MongoDB stores `timestamp` as a BSON date, represented here as an ISO string.
   "pickups": 369,
   "dropoffs": 245,
   "imbalance": 124,
-  "fareSum": 3773.50,
+  "fareSum": 3773.5,
   "fareTripCount": 322,
   "averageFare": 11.7189,
   "distanceSum": 714.25,
@@ -550,7 +550,7 @@ trips in the slice.
       "borough": "Manhattan",
       "trips": 1420,
       "share": 0.1141,
-      "averageFare": 14.20,
+      "averageFare": 14.2,
       "averageDistance": 2.35,
       "averageDurationSec": 780
     }
@@ -578,12 +578,12 @@ See [flow query semantics](api/flows.py).
 | `min_sample`             | Minimum historical pickups for eligibility | Default 30; non-negative           |
 | `note`                   | Optional version note                      | Up to 500 characters               |
 
-| Weight parameter | Metric           | Default  |
+| Weight parameter | Metric           |  Default |
 | ---------------- | ---------------- | -------: |
-| `w_pickup`       | Pickup activity  | 0.50     |
-| `w_imbalance`    | Net outflow      | 0.25     |
-| `w_consistency`  | Consistency      | 0.15     |
-| `w_fare`         | Median fare      | 0.10     |
+| `w_pickup`       | Pickup activity  |     0.50 |
+| `w_imbalance`    | Net outflow      |     0.25 |
+| `w_consistency`  | Consistency      |     0.15 |
+| `w_fare`         | Median fare      |     0.10 |
 | **Total**        | **Must equal 1** | **1.00** |
 
 ### 7.2 Scoring and fleet split
@@ -832,18 +832,18 @@ numbers. They are retained for traceability, not as evidence of current performa
 
 | Planner statistics scope      | Reported rows | Reported PostgreSQL latency |
 | ----------------------------- | ------------: | --------------------------- |
-| Manhattan, Monday 07:00-09:00 | 1,035         | 8-17 ms                     |
-| All boroughs, Monday full day | 31,560        | 57-101 ms                   |
+| Manhattan, Monday 07:00-09:00 |         1,035 | 8-17 ms                     |
+| All boroughs, Monday full day |        31,560 | 57-101 ms                   |
 
 | Same scope                    | Reported MongoDB without index | Reported MongoDB with index |
 | ----------------------------- | -----------------------------: | --------------------------: |
-| Manhattan, Monday 07:00-09:00 | 200 ms                         | 96 ms                       |
-| All boroughs, Monday full day | 910 ms                         | 435 ms                      |
+| Manhattan, Monday 07:00-09:00 |                         200 ms |                       96 ms |
+| All boroughs, Monday full day |                         910 ms |                      435 ms |
 
 | Historical storage claim           | Data only | Including indexes |
 | ---------------------------------- | --------: | ----------------: |
-| MongoDB time-series hourly records | 29.5 MB   | 45 MB             |
-| PostgreSQL hourly table            | 57 MB     | 89 MB             |
+| MongoDB time-series hourly records |   29.5 MB |             45 MB |
+| PostgreSQL hourly table            |     57 MB |             89 MB |
 
 The supplied document also reports approximately 35.2 MB for MongoDB application
 documents without defining the measurement. It must not be compared directly
