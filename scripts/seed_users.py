@@ -20,10 +20,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "etl"))
 
-from api.passwords import hash_password, verify_password  # noqa: E402
+from api.passwords import hash_password, password_problem, verify_password  # noqa: E402
 from common import pg_connect  # noqa: E402
-
-MIN_LENGTH = 12
 
 # (email, display name, role, password variable)
 ACCOUNTS = [
@@ -38,9 +36,8 @@ def seed(conn, env=os.environ) -> dict[str, str]:
     or skipped. Checks every password before writing anything."""
     passwords = {var: env.get(var, "") for *_, var in ACCOUNTS}
     for var, password in passwords.items():
-        if password and (len(password) < MIN_LENGTH or "change-me" in password):
-            raise ValueError(f"{var} must be at least {MIN_LENGTH} characters "
-                             "and not the example value")
+        if password and (problem := password_problem(password)):
+            raise ValueError(f"{var} {problem}")
 
     result = {}
     with conn.transaction():

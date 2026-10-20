@@ -1,26 +1,47 @@
-import { useEffect, useState } from "react";
-import { api, type User } from "../../api";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { api, post, type User } from "../../api";
 
 type Account = {
   user_id: number; email: string; display_name: string;
   is_active: boolean; roles: string[]; plans: number;
 };
 type Deleted = { deleted_views: number; deleted_plans: number };
+const NEW_USER = { email: "", display_name: "", role: "analyst", password: "" };
 
-// Accounts, and deleting one together with its saved plans (PostgreSQL) and
-// saved views (MongoDB). Routes in api/routers/users.py.
+// Accounts: adding one, and deleting one together with its saved plans
+// (PostgreSQL) and saved views (MongoDB). Routes in api/routers/users.py.
 export default function Users() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [me, setMe] = useState<User | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [form, setForm] = useState(NEW_USER);
+  const [adding, setAdding] = useState(false);
 
   const load = () => api<Account[]>("/admin/users").then(setAccounts);
+  const field = (name: keyof typeof NEW_USER) =>
+    (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm({ ...form, [name]: e.target.value });
 
   useEffect(() => {
     Promise.all([load(), api<User>("/auth/me").then(setMe)])
       .catch((e: Error) => setMessage({ kind: "error", text: e.message }));
   }, []);
+
+  const add = async (e: FormEvent) => {
+    e.preventDefault();
+    setAdding(true);
+    setMessage(null);
+    try {
+      const a = await post<Account>("/admin/users", form);
+      setForm(NEW_USER);
+      setMessage({ kind: "ok", text: `Added ${a.email} as ${a.roles.join(", ")}.` });
+      await load();
+    } catch (err) {
+      setMessage({ kind: "error", text: (err as Error).message });
+    } finally {
+      setAdding(false);
+    }
+  };
 
   const remove = async (a: Account) => {
     if (!window.confirm(`Delete ${a.email}, their ${a.plans} saved plan(s) and all their saved views? ` +
@@ -42,9 +63,24 @@ export default function Users() {
     <div className="card">
       <div className="card-title">Users</div>
       <p className="muted small">
-        Deleting a user also deletes their saved plans and saved views. If it stops part way, the user is
-        left inactive (unable to log in) and Delete can simply be pressed again.
+        The three default accounts come from <code>.env</code>; add any others here. Deleting a user also deletes
+        their saved plans and saved views. If it stops part way, the user is left inactive (unable to log in) and
+        Delete can simply be pressed again.
       </p>
+      <form className="row" onSubmit={add}>
+        <input type="email" placeholder="Email" aria-label="Email" required maxLength={254}
+               value={form.email} onChange={field("email")} />
+        <input placeholder="Name" aria-label="Name" required maxLength={100}
+               value={form.display_name} onChange={field("display_name")} />
+        <select aria-label="Role" value={form.role} onChange={field("role")}>
+          <option value="analyst">analyst</option>
+          <option value="admin">admin</option>
+        </select>
+        <input type="password" placeholder="Password, 12+ characters" aria-label="Password" required
+               minLength={12} maxLength={1024} autoComplete="new-password"
+               value={form.password} onChange={field("password")} />
+        <button className="primary" disabled={adding}>{adding ? "Adding…" : "Add user"}</button>
+      </form>
       {message && <div className={`alert ${message.kind}`}>{message.text}</div>}
       {accounts && (
         <div className="table-wrap">

@@ -10,7 +10,17 @@ can be raised later; needs_rehash() then tells login to upgrade old hashes.
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
 
+MIN_LENGTH = 12
+
 _hasher = PasswordHasher()
+
+
+def password_problem(password: str) -> str | None:
+    """Why a new password is refused, or None. The one rule for every way an
+    account gets a password: the default accounts and admin-created users."""
+    if len(password) < MIN_LENGTH or "change-me" in password:
+        return f"must be at least {MIN_LENGTH} characters and not the example value"
+    return None
 
 
 def hash_password(password: str) -> str:

@@ -1,4 +1,9 @@
-"""Listing and deleting users. Deleting spans both databases.
+"""Listing, creating and deleting users. Deleting spans both databases.
+
+Admins create accounts with exactly one role, written in one transaction, so
+there is never a user without a role. The three default accounts are left to
+scripts/seed_users.py: the loader resets their password and role from .env on
+every start, so they can't be created here.
 
 PostgreSQL's ON DELETE CASCADE removes a user's roles and saved plans (with
 their versions and results), but it can't reach the user's saved views in
@@ -25,13 +30,21 @@ from psycopg.rows import dict_row
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
 
+from .passwords import hash_password, password_problem
 from .saved_views import delete_views_for_user
 
 log = logging.getLogger("ycq.users")
 
+# The accounts scripts/seed_users.py manages from .env.
+RESERVED_EMAILS = {"admin@ycq.local", "analyst1@ycq.local", "analyst2@ycq.local"}
+
 
 class UserNotFound(LookupError):
     pass
+
+
+class EmailTaken(ValueError):
+    """Another account has this email (in any case), or it is a default account."""
 
 
 class LastAdmin(ValueError):
@@ -54,6 +67,33 @@ def list_users(conn) -> list[dict]:
                LEFT JOIN app_role r USING (role_id)
                GROUP BY u.user_id
                ORDER BY u.user_id""").fetchall()
+
+
+def create_user(conn, email: str, display_name: str, role: str, password: str) -> dict:
+    """Create an active account with one role, shaped like a list_users row.
+    Raises EmailTaken, or ValueError for a refused password or unknown role;
+    nothing is written in either case."""
+    email = email.strip().lower()
+    if email in RESERVED_EMAILS:
+        raise EmailTaken(f"{email} is a default account and is managed from .env")
+    if problem := password_problem(password):
+        raise ValueError(f"the password {problem}")
+    password_hash = hash_password(password)   # outside the transaction: it takes ~50 ms
+    try:
+        with conn.transaction(), conn.cursor(row_factory=dict_row) as cur:
+            user = cur.execute(
+                """INSERT INTO app_user (email, display_name, password_hash)
+                   VALUES (%s, %s, %s)
+                   RETURNING user_id, email, display_name, is_active""",
+                (email, display_name.strip(), password_hash)).fetchone()
+            if cur.execute("""INSERT INTO app_user_role (user_id, role_id)
+                              SELECT %s, role_id FROM app_role WHERE name = %s""",
+                           (user["user_id"], role)).rowcount != 1:
+                raise ValueError(f"unknown role {role!r}")   # rolls the user back too
+    except psycopg.errors.UniqueViolation as e:
+        raise EmailTaken(f"{email} already has an account") from e
+    log.info("created user %s (%s)", user["user_id"], role)
+    return {**user, "roles": [role], "plans": 0}
 
 
 def delete_user(conn, views: Collection, user_id: int) -> dict:

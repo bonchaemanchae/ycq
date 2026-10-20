@@ -79,7 +79,10 @@ temporary shared development user is no longer used. See [api/auth.py](api/auth.
 and [the implementation report](docs/login-roles-and-user-deletion.md).
 
 **Out of scope:** machine learning predictions, real-time GPS tracking, live
-booking or payments, mobile apps and a third database.
+booking or payments, mobile apps and a third database. Self-registration and
+email password reset are also out of scope: YCQ is an internal tool, so the
+three default accounts come from `.env` and administrators create any others
+(Administration → Users). The stack has no mail service for reset emails.
 
 ---
 
@@ -191,6 +194,7 @@ navigation pages. The current tab is **Activity Dashboard**.
 | Flow Explorer   | Caleb | Zone/month/day-type/time filters, top-10 destinations, map lines and month comparison.             | Saved-view controls and real authentication integration.  |
 | Administration  | Sean  | Import overview, reason breakdowns, rejected-row pagination, reconciliation and benchmark display. | Final benchmark measurements and report interpretation.   |
 | Benchmark suite | Sean  | Five questions, equivalent-answer checks, timings, sizes and query plans.                          | Run on the final evaluation machine and document results. |
+| User management | Arif  | Admins add analyst or admin accounts and delete them; default accounts come from `.env`.           | Optional: admin password reset.                           |
 
 ### 3.3 Optional ideas
 
@@ -693,6 +697,7 @@ FastAPI's own routes do not all carry an `/api` prefix.
 | GET    | `/auth/me`                | Logged in      | The current user and roles.                                         |
 | GET    | `/admin/users`            | Admin          | Accounts with roles, active state and plan counts.                  |
 | DELETE | `/admin/users/{user_id}`  | Admin          | Delete a user in both databases; 404 unknown, 409 self, 503 retry.  |
+| POST   | `/admin/users`            | Admin          | Add an account with one role; 409 email taken, 422 weak password.   |
 
 ### 8.1 Health, geography and dashboard placeholder
 
@@ -916,6 +921,7 @@ implementation task. See [application navigation](web/src/App.tsx).
 | Authentication     | **Done:** Argon2id password verification, 8-hour JWT sessions and login UI.                       |
 | Authorization      | **Done:** analyst/admin access rules on every router, checked against the database per request.   |
 | User deletion      | **Done:** MongoDB saved views removed before the PostgreSQL account; retryable on failure.        |
+| User creation      | **Done:** admins add accounts with one role; self-registration and email reset are out of scope.  |
 | Benchmarks         | Final-machine measurements and a supported interpretation of SQL/NoSQL trade-offs.                |
 
 ### 10.3 Decisions and report requirements

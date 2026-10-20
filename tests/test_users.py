@@ -1,5 +1,5 @@
-"""Deleting a user across PostgreSQL and MongoDB (api/users.py), including
-what happens when either database fails part way.
+"""Creating users, and deleting a user across PostgreSQL and MongoDB
+(api/users.py), including what happens when either database fails part way.
 
 The user owns a saved plan with two versions, so the deletion also proves the
 cascade gets past the triggers that protect saved plan history.
@@ -13,9 +13,11 @@ from types import SimpleNamespace
 import pytest
 from pymongo.errors import AutoReconnect
 
-from conftest import ROOT, login, pg_connect
+from conftest import PASSWORD, ROOT, login, pg_connect
 
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
+import seed_users  # noqa: E402
 from api import saved_views, users  # noqa: E402
 
 
@@ -250,3 +252,77 @@ def test_an_incomplete_deletion_is_reported_as_retryable(client, views, victim, 
     monkeypatch.setattr(users, "delete_user", fail)
     r = client.delete(f"/admin/users/{user_id}", headers=login(client, "boss@test.local"))
     assert r.status_code == 503 and r.json()["detail"] == "Try again."
+
+
+# --- creating users ------------------------------------------------------------
+
+NEW = "new@test.local"
+
+
+@pytest.fixture
+def admin(client, db, make_user):
+    """An admin's Authorization header; any account made under NEW is removed."""
+    make_user("boss@test.local", "admin")
+    db.execute("DELETE FROM app_user WHERE lower(email) = %s", (NEW,))
+    yield login(client, "boss@test.local")
+    db.execute("DELETE FROM app_user WHERE lower(email) = %s", (NEW,))
+
+
+def accounts_named(db, email):
+    return db.execute("SELECT count(*) FROM app_user WHERE lower(email) = lower(%s)",
+                      (email,)).fetchone()[0]
+
+
+def new_user(**changes):
+    return {"email": NEW, "display_name": "New Analyst", "role": "analyst",
+            "password": PASSWORD, **changes}
+
+
+def test_admin_creates_a_user_who_can_log_in(client, db, admin):
+    r = client.post("/admin/users", headers=admin, json=new_user(email="  New@Test.local "))
+    assert r.status_code == 201
+    assert r.json() == {"user_id": r.json()["user_id"], "email": NEW, "display_name": "New Analyst",
+                        "is_active": True, "roles": ["analyst"], "plans": 0}   # no hash
+    (stored,) = db.execute("SELECT password_hash FROM app_user WHERE email = %s", (NEW,)).fetchone()
+    assert stored.startswith("$argon2id$")
+    me = client.get("/auth/me", headers=login(client, NEW))
+    assert me.json()["roles"] == ["analyst"]
+    assert client.get("/admin/users", headers=login(client, NEW)).status_code == 403
+
+
+def test_an_email_in_use_is_refused_in_any_case(client, db, admin):
+    assert client.post("/admin/users", headers=admin, json=new_user()).status_code == 201
+    r = client.post("/admin/users", headers=admin, json=new_user(email="NEW@test.local", role="admin"))
+    assert r.status_code == 409 and "already has an account" in r.json()["detail"]
+    assert accounts_named(db, NEW) == 1
+
+
+def test_the_default_accounts_are_left_to_the_loader(db):
+    assert users.RESERVED_EMAILS == {email for email, *_ in seed_users.ACCOUNTS}
+    for email in seed_users.ACCOUNTS[0][0].upper(), *users.RESERVED_EMAILS:
+        before = accounts_named(db, email)
+        with pytest.raises(users.EmailTaken, match="managed from .env"):
+            users.create_user(db, email, "Imposter", "analyst", PASSWORD)
+        assert accounts_named(db, email) == before
+
+
+@pytest.mark.parametrize("password", ["short", "change-me-please-123"])
+def test_a_weak_password_is_refused_before_writing(client, db, admin, password):
+    r = client.post("/admin/users", headers=admin, json=new_user(password=password))
+    assert r.status_code == 422 and "at least 12 characters" in r.json()["detail"]
+    assert accounts_named(db, NEW) == 0
+
+
+def test_an_unknown_role_leaves_no_user_without_a_role(client, db, admin):
+    assert client.post("/admin/users", headers=admin,
+                       json=new_user(role="superuser")).status_code == 422
+    with pytest.raises(ValueError, match="unknown role"):
+        users.create_user(db, NEW, "New", "superuser", PASSWORD)   # past the route's check
+    assert accounts_named(db, NEW) == 0                              # the user insert rolled back
+
+
+@pytest.mark.parametrize("body", [new_user(email="not-an-email"), new_user(display_name="  "),
+                                  {**new_user(), "is_active": False}])
+def test_invalid_requests_are_refused(client, db, admin, body):
+    assert client.post("/admin/users", headers=admin, json=body).status_code == 422
+    assert accounts_named(db, NEW) == 0

@@ -169,10 +169,11 @@ Saved allocation plans are checked by the database itself, not only by the API
 
 ### Users and login
 
-- **Accounts** are created by the loader from `.env` (`scripts/seed_users.py`);
-  there is no sign-up. An account whose password variable is empty isn't
+- **Accounts:** the three default accounts are created by the loader from `.env`
+  (`scripts/seed_users.py`); an account whose password variable is empty isn't
   created. Changing a password in `.env` updates it on the next
-  `docker compose up -d`.
+  `docker compose up -d`. Admins add any other accounts under
+  Administration → Users; there is no self sign-up.
 - **Passwords** are stored as Argon2id hashes. Logging in returns a token valid
   for 8 hours; the website keeps it until the tab is closed. The token only
   says who you are: your roles and whether your account still exists are

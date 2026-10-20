@@ -85,6 +85,8 @@ token login, role checks and input validation."*
   sent from [web/src/api.ts](web/src/api.ts), Administration only shown to admins
 - [x] Deleting a user across both databases, with a Users section on the
   Administration page (review §3.2)
+- [x] Admins add analyst or admin accounts in the same Users section
+  (`POST /admin/users`); the three default emails stay with `.env`
 - [ ] PostgreSQL read/write roles, if you build them. **Use `sql/014_…`:**
   `012` and `013` are now taken. Remember the admin rebuild (review §3.1): the
   rebuild writes `reconciliation_run` and the summaries, so either give admin

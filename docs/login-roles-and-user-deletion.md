@@ -4,25 +4,26 @@
 **Branch:** `feature/login-roles`  
 **Master plan items delivered:** Login and roles (section 3.1), Authentication,
 Authorization and User deletion (section 10.2), the planned `/api/auth/*` routes
-(section 8.6), and the cross-database ownership decision (section 10.3)
+(section 8.6), the cross-database ownership decision (section 10.3), and admin
+user creation (extended scope, section 3.2)
 
 ---
 
 ## 1. Summary
 
 The application previously treated every request as one shared development user
-(`dev@ycq.local`), stored no real passwords and had no way to delete a user.
-This work adds:
+(`dev@ycq.local`), stored no real passwords and had no way to add or delete a
+user. This work adds:
 
 | Area | Result |
 | --- | --- |
 | Login | Email and password login with **Argon2id** hashes, returning an **8-hour JWT**. |
 | Roles | Every route is protected: public, any role (analyst or admin), or admin only. |
-| Accounts | One admin and two analyst accounts created automatically from `.env`. |
+| Accounts | One admin and two analyst accounts created automatically from `.env`; admins create any further accounts on the website. There is no self-registration. |
 | User deletion | Removes a user from **both databases**: MongoDB saved views, then the PostgreSQL account, with plans removed by cascade. Any failure part way leaves a state the admin can safely retry. |
-| Website | Login page, logout, Administration tab shown only to admins, and a Users section with Delete. |
+| Website | Login page, logout, Administration tab shown only to admins, and a Users section with Add user and Delete. |
 
-**Evidence:** 39 new automated tests (182 in total, all passing), 13
+**Evidence:** 48 new automated tests (191 in total, all passing), 18
 deliberately injected bugs all caught, a concurrency test, a 16-check live test
 against the running containers, browser checks and an independent code review
 whose one finding was fixed.
@@ -41,6 +42,7 @@ whose one finding was fixed.
 | Remove MongoDB saved views before deleting the PostgreSQL account | 10.2 User deletion, 10.3 | Three-step deletion with retry and last-admin guard | `api/users.py`, `api/routers/users.py` | `test_users.py`, failure injection, live test |
 | Saved-view ownership enforced by the application, not a cross-store key | 10.3 | Deleted users lose access at once; their views are removed | `api/users.py` | `test_users.py` |
 | Admin capabilities on the Administration page | 1.2, 3.4 | Users section: list accounts, delete with confirmation | `web/src/pages/admin/Users.tsx` | Browser checks |
+| Admin user creation (extended scope; no self-registration, see 1.2) | 3.2, 8.0 | `POST /admin/users` and an Add user form: one role per account, same password rule as `.env`, default emails reserved | `api/users.py`, `api/routers/users.py`, `web/src/pages/admin/Users.tsx` | `test_users.py` (section 3.6) |
 
 Out of this scope, and still open in the master plan: PostgreSQL `ycq_read` /
 `ycq_write` database roles (section 10.3), the Activity Dashboard, saved-view
@@ -100,6 +102,9 @@ Run by the loader on every start, after the schema is applied.
 - **Safe:** every password is checked before anything is written; anything
   shorter than 12 characters or containing `change-me` is refused. An unset
   variable skips that account, so no account exists with a password nobody chose.
+  The rule is `password_problem()` in `api/passwords.py`, shared with admin user
+  creation (section 3.6), so there is one rule for every way an account gets a
+  password.
 - The API container receives these variables as empty strings; only the loader
   needs them.
 
@@ -166,8 +171,30 @@ This reuses Caleb's existing `delete_views_for_user()` from `api/saved_views.py`
   non-admins, and `/admin` redirects them to the dashboard. The backend refuses
   them anyway.
 - **`web/src/pages/admin/Users.tsx`:** lists accounts with roles, active state
-  and plan count. Delete asks for confirmation and reports how many plans and
-  views were removed. Your own row shows "you" instead of Delete.
+  and plan count. The Add user form takes email, name, role and a first
+  password, and shows the server's reason if it is refused. Delete asks for
+  confirmation and reports how many plans and views were removed. Your own row
+  shows "you" instead of Delete. The section sits inside Sean's Administration
+  page, which needed no change.
+
+### 3.6 Creating users: `api/users.py`, `POST /admin/users`
+
+Admins add analyst or admin accounts. This completes create, read and delete
+for `app_user`, without self-registration (see section 4).
+
+| Rule | How it is enforced | Response |
+| --- | --- | --- |
+| Exactly one role, never none | The `app_user` and `app_user_role` inserts run in **one transaction**; an unknown role rolls the user back as well | 422 |
+| One account per email, in any case | Emails are stored trimmed and lowercased; the unique index on `lower(email)` refuses duplicates and the `UniqueViolation` is turned into a clear message | 409 |
+| The default accounts stay with `.env` | `admin@`, `analyst1@` and `analyst2@ycq.local` are refused. Otherwise, setting that account's `.env` password later would make the loader change its password and **add** the default role to it | 409 |
+| Same password rule as the default accounts | `password_problem()` from `api/passwords.py` runs before anything is written | 422 |
+| Admins only | The route is on the existing `ADMIN_ONLY` users router, so the route-coverage test checked it with no edits | 401 / 403 |
+| No hash in responses | The route returns the same fields as the Users list | — |
+
+The email is checked with a plain pattern rather than Pydantic's `EmailStr`,
+which needs an extra package and refuses `.local` addresses such as the default
+accounts'. The password is hashed before the transaction starts, so the ~50 ms
+of hashing doesn't hold database locks.
 
 ---
 
@@ -183,7 +210,9 @@ This reuses Caleb's existing `delete_views_for_user()` from `api/saved_views.py`
 | Deletion order | Deactivate → MongoDB → PostgreSQL; saving a view locks its owner's row | PostgreSQL first: a MongoDB failure would leave unreachable orphans. A final MongoDB "sweep" (the first version): it could fail after the user was gone, and a slow save could still land after it |
 | Keep at least one admin | Lock admin rows, refuse the last one | Relying only on "no self-delete": fails when two admins delete each other at once (found by review, proved by test) |
 | Weak `JWT_SECRET` | API refuses to start | Warning only: a forged admin token would still be possible |
-| Accounts | Seeded from `.env` by the loader | Hard-coded passwords would be committed to Git |
+| Accounts | Three default accounts seeded from `.env` by the loader; any others created by an admin | Hard-coded passwords would be committed to Git |
+| How other accounts are made | Admin creates them on the Users section | **Self-registration:** anyone could create an account on an internal analyst tool and would need an approval step; the brief doesn't ask for it. **Email password reset:** needs a mail service the Docker stack doesn't have |
+| Admin password reset | Not built yet | The loader resets the default accounts to their `.env` passwords on every start, so a reset on the website would be silently undone for them; better as its own change |
 
 ### Adapting the original task prompt
 
@@ -211,7 +240,7 @@ this repository:
    `admin@ycq.local: created`, and so on.
 3. Open http://localhost:8080 and log in. For the API, use
    http://localhost:8000/docs → `POST /auth/login` → **Authorize** → paste the token.
-4. Delete users from Administration → Users.
+4. Add users from Administration → Users → Add user, and delete them there too.
 
 **Teammates with an existing `.env`** must add the three password variables and
 make sure `JWT_SECRET` is long enough. Until then, the API will not start, and
@@ -229,10 +258,10 @@ password is still in `.env`. Remove the variable to keep it deleted.
 | Suite | Tests | Covers |
 | --- | ---: | --- |
 | `tests/test_auth.py` | 28 | Argon2id format and salting; weak secrets refused, including at API start; token round trip; 8 kinds of bad token (expired, other secret, `alg: none`, missing `sub`/`exp`, non-numeric `sub`, altered payload, garbage); identical login failures; case-insensitive email; hash upgrade; role removal and deactivation applying to existing tokens; **every route called as nobody, role-less user, analyst and admin**; malformed headers; seed creation, idempotency, password change, skip and refusal |
-| `tests/test_users.py` | 10 | Full deletion with a two-version saved plan through the plan-history triggers; bystander untouched; unknown user; **MongoDB outage** then retry; **real PostgreSQL error** (temporary trigger) then retry; **a view being saved in another connection when deletion starts** is waited for and deleted; last admin refused; **two admins deleting each other concurrently**; API delete, 404 on repeat and the deleted user's token rejected; self-delete 409; 503 mapping |
+| `tests/test_users.py` | 19 | Full deletion with a two-version saved plan through the plan-history triggers; bystander untouched; unknown user; **MongoDB outage** then retry; **real PostgreSQL error** (temporary trigger) then retry; **a view being saved in another connection when deletion starts** is waited for and deleted; last admin refused; **two admins deleting each other concurrently**; API delete, 404 on repeat and the deleted user's token rejected; self-delete 409; 503 mapping. **Creating users:** a created analyst can log in with exactly that role and no hash is returned; an email in use is refused in any case; the three default emails are refused, and the list matches `seed_users.py`; weak passwords and an unknown role write nothing; malformed requests refused |
 | `tests/test_saved_views.py` | +1 | An inactive or unknown owner cannot save a view (the suite's two test owners are now real users) |
 | Existing suites | 143 | Unchanged and still passing |
-| **Total** | **182** | **All pass** |
+| **Total** | **191** | **All pass** |
 
 ### 6.2 Do the tests catch real bugs? Mutation check
 
@@ -254,8 +283,13 @@ A useful test suite must fail every time.
 | Last admin deletable | Last-admin test |
 | Seed rehashes on every run | Seed idempotency test |
 | Weak seed password accepted | Seed refusal test |
+| Default emails can be created | Default-account test |
+| Password rule skipped on creation | Weak-password tests |
+| User and role inserted outside one transaction | Unknown-role test |
+| Duplicate email not turned into 409 | Email-in-use test |
+| Email case kept as typed | Create and email-in-use tests |
 
-**13 of 13 caught.** Removing the admin row lock made the concurrency test fail
+**18 of 18 caught.** Removing the admin row lock made the concurrency test fail
 in **5 of 5** runs, because both admins were deleted. With the lock, it passed
 **10 of 10** runs.
 
@@ -327,20 +361,20 @@ described in section 3.4 and proved by the concurrency test.
 | File | Lines added / removed | Purpose |
 | --- | ---: | --- |
 | `api/auth.py` | 113 / 34 | Tokens, `current_user`, `require_role`, login; dev user removed |
-| `api/passwords.py` | 30 / 0 | Argon2id hashing |
-| `api/users.py` | 107 / 0 | User listing and three-step deletion |
+| `api/passwords.py` | 40 / 0 | Argon2id hashing and the shared password rule |
+| `api/users.py` | 139 / 0 | User listing, creation and three-step deletion |
 | `api/saved_views.py` | 8 / 1 | Saving a view locks its owner's row, so deletion can't miss it |
 | `api/routers/auth.py` | 30 / 0 | `/auth/login`, `/auth/me` |
-| `api/routers/users.py` | 34 / 0 | `/admin/users` routes |
+| `api/routers/users.py` | 62 / 0 | `/admin/users` routes: list, create, delete |
 | `api/main.py` | 19 / 8 | Router access groups, secret check, logging |
-| `scripts/seed_users.py` | 87 / 0 | Default accounts |
+| `scripts/seed_users.py` | 84 / 0 | Default accounts |
 | `etl/load_all.py` | 1 / 0 | Runs the seed |
 | `docker-compose.yml`, `.env.example`, `requirements.txt` | 25 / 3 | Variables and the `argon2-cffi`, `PyJWT` and `httpx` dependencies |
 | `web/src/api.ts`, `App.tsx`, `pages/Login.tsx`, `pages/Admin.tsx`, `pages/admin/Users.tsx`, `styles.css` | 201 / 17 | Website |
 | `tests/conftest.py`, `tests/test_auth.py`, `tests/test_users.py` | 551 / 0 | Tests |
 | `README.md`, `STATUS.md`, `master_plan.md` | — | Documentation and status |
 
-Application code is about **420 lines of Python and 200 of TypeScript**. The
+Application code is about **500 lines of Python and 235 of TypeScript**. The
 tests are larger than the code they test, which is intentional for security and
 data-integrity work. No new abstractions were added beyond what is listed.
 
@@ -350,8 +384,12 @@ data-integrity work. No new abstractions were added beyond what is listed.
 
 - **No login rate limiting.** Argon2 slows each guess, but repeated attempts are
   not blocked.
-- **No refresh tokens, password reset or sign-up.** Accounts come from `.env`,
-  as the schema comment in `sql/003_users.sql` intended.
+- **No self-registration, password reset or refresh tokens.** The three default
+  accounts come from `.env`; any others are created by an admin, matching the
+  schema comment in `sql/003_users.sql` ("accounts are created in advance; no
+  sign-up"). A user who forgets their password is deleted and re-created by an
+  admin, losing their plans and views; an admin password reset would avoid that
+  (section 4).
 - **Tokens can't be revoked individually** before expiry. Deactivating or
   deleting the user is the immediate kill switch.
 - **`sessionStorage` is readable by scripts on the page.** React escapes output
