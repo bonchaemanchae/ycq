@@ -227,7 +227,7 @@ Everything the report lists for this part is built and tested.
 | P7 Blocking refresh, root MongoDB login, unpinned zone files, Unknown/N/A boroughs | Fixed |
 | P7 `v_trip_flags` cost | Open: an `EXPLAIN ANALYZE` for the benchmark write-up (Sean) |
 | §3.1 Write role vs admin rebuild | Open (Arif / Sean): those parts aren't built yet |
-| §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user, sweep) |
+| §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user; saving a view locks its owner's row) |
 | §3.3 MongoDB side lighter than PostgreSQL | In progress: Dashboard and Flow Explorer (Kessler, Caleb) |
 | §3.4 "Why MongoDB" justification | Open: report (everyone) |
 

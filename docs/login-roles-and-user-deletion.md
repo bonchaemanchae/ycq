@@ -1,7 +1,7 @@
 # Login, Roles and Cross-Database User Deletion
 
 **Project:** Yellow Cab Query (YCQ / Traxio), INF2003 Database Systems, Team 24  
-**Branch:** `feature/login-roles` (local commits, not pushed)  
+**Branch:** `feature/login-roles`  
 **Master plan items delivered:** Login and roles (section 3.1), Authentication,
 Authorization and User deletion (section 10.2), the planned `/api/auth/*` routes
 (section 8.6), and the cross-database ownership decision (section 10.3)
@@ -22,7 +22,7 @@ This work adds:
 | User deletion | Removes a user from **both databases**: MongoDB saved views, then the PostgreSQL account, with plans removed by cascade. Any failure part way leaves a state the admin can safely retry. |
 | Website | Login page, logout, Administration tab shown only to admins, and a Users section with Delete. |
 
-**Evidence:** 38 new automated tests (181 in total, all passing), 13
+**Evidence:** 39 new automated tests (182 in total, all passing), 13
 deliberately injected bugs all caught, a concurrency test, a 16-check live test
 against the running containers, browser checks and an independent code review
 whose one finding was fixed.
@@ -38,7 +38,7 @@ whose one finding was fixed.
 | Return the authenticated user's profile | 8.6 `/api/auth/me` | `GET /auth/me` | `api/routers/auth.py` | `test_auth.py` |
 | Distinct analyst/admin permissions; JWT and RBAC in the API | 1.2, 2.3 | Router groups `PUBLIC` / `ANY_ROLE` / `ADMIN_ONLY` | `api/main.py`, `api/auth.py` | Route-coverage test calls every route |
 | Boroughs, zones and activity routes require authentication | 8.7 | Geography and dashboard routes now require a role | `api/main.py` | Route-coverage test |
-| Remove MongoDB saved views before deleting the PostgreSQL account | 10.2 User deletion, 10.3 | Four-step deletion with retry and last-admin guard | `api/users.py`, `api/routers/users.py` | `test_users.py`, failure injection, live test |
+| Remove MongoDB saved views before deleting the PostgreSQL account | 10.2 User deletion, 10.3 | Three-step deletion with retry and last-admin guard | `api/users.py`, `api/routers/users.py` | `test_users.py`, failure injection, live test |
 | Saved-view ownership enforced by the application, not a cross-store key | 10.3 | Deleted users lose access at once; their views are removed | `api/users.py` | `test_users.py` |
 | Admin capabilities on the Administration page | 1.2, 3.4 | Users section: list accounts, delete with confirmation | `web/src/pages/admin/Users.tsx` | Browser checks |
 
@@ -107,14 +107,13 @@ Run by the loader on every start, after the schema is applied.
 
 PostgreSQL's `ON DELETE CASCADE` removes a user's roles and saved plans, with
 their versions, boroughs and results. It cannot reach MongoDB, and the two
-databases share no transaction. Deletion therefore runs in four ordered steps:
+databases share no transaction. Deletion therefore runs in three ordered steps:
 
 | Step | Database | Action | If it fails |
 | --- | --- | --- | --- |
 | 1 | PostgreSQL | Lock active admins, refuse to remove the last one, set `is_active = false` | Nothing has changed |
 | 2 | MongoDB | Delete the user's saved views | User is inactive; views and plans are intact → **503, retry** |
 | 3 | PostgreSQL | Delete the user; cascade removes roles and plans | User is inactive; views are gone → **503, retry** |
-| 4 | MongoDB | Delete views again (sweep) | Logged; the user is already gone |
 
 **Why MongoDB comes before the PostgreSQL user:** the PostgreSQL row is the only
 handle for a retry. If it were deleted first and MongoDB then failed, the views
@@ -123,13 +122,16 @@ because a second DELETE returns 404. With this order, every failure leaves an
 inactive user whom the admin can simply delete again.
 
 **Why deactivate first:** step 1 immediately blocks the user's login and every
-token they hold, so they cannot save new views while the deletion runs. It also
-makes a half-finished deletion visible as "inactive" in the Users table.
+token they hold. It also makes a half-finished deletion visible as "inactive"
+in the Users table.
 
-**Why the sweep:** a request that passed the login check just before step 1 can
-still save a view after step 2. Step 4 removes it. An orphan could survive only
-if that race coincides with step 4 failing. `user_id` is a PostgreSQL serial and
-is never reused, so such a document can never become visible to another user.
+**Views being saved during a deletion:** a request that passed the login check
+just before step 1 could otherwise store a view after step 2 and leave an
+orphan. To prevent this, `create_view` in `api/saved_views.py` locks the
+owner's row (`SELECT … AND is_active FOR SHARE`) until the MongoDB insert
+finishes. Step 1's `UPDATE` must wait for that lock, so a save already in
+progress is stored before step 2 deletes it, and any save that starts after
+step 1 finds the owner inactive and is refused.
 
 **Guards:**
 
@@ -178,7 +180,7 @@ This reuses Caleb's existing `delete_views_for_user()` from `api/saved_views.py`
 | Roles in the token? | No, re-read from the database on each request | Roles in claims stay valid until expiry after a demotion or deletion; avoiding that would need a revocation list |
 | Token transport | `HTTPBearer` + `sessionStorage` | httpOnly cookie: more resistant to script theft but needs CSRF handling; Bearer also works with `/docs` Authorize |
 | Who deletes users | Admins only, through `/admin/users` | Self-deletion through `/auth/me`: not in the master plan and easy to trigger by mistake |
-| Deletion order | Deactivate → MongoDB → PostgreSQL → sweep | PostgreSQL first: a MongoDB failure would leave unreachable orphans |
+| Deletion order | Deactivate → MongoDB → PostgreSQL; saving a view locks its owner's row | PostgreSQL first: a MongoDB failure would leave unreachable orphans. A final MongoDB "sweep" (the first version): it could fail after the user was gone, and a slow save could still land after it |
 | Keep at least one admin | Lock admin rows, refuse the last one | Relying only on "no self-delete": fails when two admins delete each other at once (found by review, proved by test) |
 | Weak `JWT_SECRET` | API refuses to start | Warning only: a forged admin token would still be possible |
 | Accounts | Seeded from `.env` by the loader | Hard-coded passwords would be committed to Git |
@@ -227,9 +229,10 @@ password is still in `.env`. Remove the variable to keep it deleted.
 | Suite | Tests | Covers |
 | --- | ---: | --- |
 | `tests/test_auth.py` | 28 | Argon2id format and salting; weak secrets refused, including at API start; token round trip; 8 kinds of bad token (expired, other secret, `alg: none`, missing `sub`/`exp`, non-numeric `sub`, altered payload, garbage); identical login failures; case-insensitive email; hash upgrade; role removal and deactivation applying to existing tokens; **every route called as nobody, role-less user, analyst and admin**; malformed headers; seed creation, idempotency, password change, skip and refusal |
-| `tests/test_users.py` | 10 | Full deletion with a two-version saved plan through the plan-history triggers; bystander untouched; unknown user; **MongoDB outage** then retry; **real PostgreSQL error** (temporary trigger) then retry; view saved mid-deletion removed by the sweep; last admin refused; **two admins deleting each other concurrently**; API delete, 404 on repeat and the deleted user's token rejected; self-delete 409; 503 mapping |
+| `tests/test_users.py` | 10 | Full deletion with a two-version saved plan through the plan-history triggers; bystander untouched; unknown user; **MongoDB outage** then retry; **real PostgreSQL error** (temporary trigger) then retry; **a view being saved in another connection when deletion starts** is waited for and deleted; last admin refused; **two admins deleting each other concurrently**; API delete, 404 on repeat and the deleted user's token rejected; self-delete 409; 503 mapping |
+| `tests/test_saved_views.py` | +1 | An inactive or unknown owner cannot save a view (the suite's two test owners are now real users) |
 | Existing suites | 143 | Unchanged and still passing |
-| **Total** | **181** | **All pass** |
+| **Total** | **182** | **All pass** |
 
 ### 6.2 Do the tests catch real bugs? Mutation check
 
@@ -239,7 +242,7 @@ A useful test suite must fail every time.
 | Injected bug | Caught by |
 | --- | --- |
 | Delete PostgreSQL user before MongoDB views | MongoDB-outage test |
-| Remove the final sweep | Mid-deletion view test |
+| Remove the save's row lock (`FOR SHARE`) | Concurrent-save test (re-checked after the fix) |
 | Skip deactivation | MongoDB-outage test |
 | Admin routers open to analysts | Route-coverage test |
 | Zone routes made public | Route-coverage test |
@@ -325,7 +328,8 @@ described in section 3.4 and proved by the concurrency test.
 | --- | ---: | --- |
 | `api/auth.py` | 113 / 34 | Tokens, `current_user`, `require_role`, login; dev user removed |
 | `api/passwords.py` | 30 / 0 | Argon2id hashing |
-| `api/users.py` | 107 / 0 | User listing and four-step deletion |
+| `api/users.py` | 107 / 0 | User listing and three-step deletion |
+| `api/saved_views.py` | 8 / 1 | Saving a view locks its owner's row, so deletion can't miss it |
 | `api/routers/auth.py` | 30 / 0 | `/auth/login`, `/auth/me` |
 | `api/routers/users.py` | 34 / 0 | `/admin/users` routes |
 | `api/main.py` | 19 / 8 | Router access groups, secret check, logging |

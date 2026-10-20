@@ -3,22 +3,20 @@
 PostgreSQL's ON DELETE CASCADE removes a user's roles and saved plans (with
 their versions and results), but it can't reach the user's saved views in
 MongoDB, and the two databases share no transaction. So delete_user runs
-four steps, ordered so that any failure leaves something to retry from:
+three steps, ordered so that any failure leaves something to retry from:
 
   1. PostgreSQL: deactivate the user. Their login and every token they hold
-     stop working at once (auth.current_user only accepts active users), so
-     they can't save new views while the deletion runs. The last active
-     admin is refused here, so the app always keeps one.
+     stop working at once (auth.current_user only accepts active users). A
+     view being saved holds the user's row (saved_views.create_view), so
+     this waits for it to be stored; after it, no new view can be saved.
+     The last active admin is refused here, so the app always keeps one.
   2. MongoDB: delete their saved views.
   3. PostgreSQL: delete the user; the cascade removes roles and plans.
-  4. MongoDB: delete their views again, in case a request that was already
-     past the login check saved one between steps 2 and 3.
 
 MongoDB goes before the user row on purpose: while the row exists, a failure
 leaves an inactive user that the admin can simply delete again. The other
 order would leave views whose owner no longer exists and that no endpoint can
-reach. user_id is a serial and never reused, so even a leftover view can't
-show up for another user.
+reach.
 """
 import logging
 
@@ -96,12 +94,6 @@ def delete_user(conn, views: Collection, user_id: int) -> dict:
                       user_id, deleted_views)
         raise DeletionIncomplete(
             "Their saved views were deleted, but the user could not be. Try again.") from e
-
-    try:
-        deleted_views += delete_views_for_user(views, user_id)
-    except PyMongoError:
-        log.exception("deleting user %s: user deleted, but the final saved-view check failed",
-                      user_id)
 
     log.info("deleted user %s: %s saved views, %s plans", user_id, deleted_views, deleted_plans)
     return {"user_id": user_id, "deleted_views": deleted_views, "deleted_plans": deleted_plans}

@@ -6,7 +6,9 @@ cascade gets past the triggers that protect saved plan history.
 """
 import sys
 import threading
+import time
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from pymongo.errors import AutoReconnect
@@ -146,21 +148,34 @@ def test_postgres_failure_keeps_the_user_to_retry_from(db, views, victim):
     assert footprint(db, views, user_id, plan_id) == GONE
 
 
-def test_a_view_saved_during_deletion_is_swept_up(db, views, victim):
-    """A request that passed the login check just before the user was
-    deactivated saves a view after step 2. Step 4 must remove it."""
+def test_a_view_being_saved_when_deletion_starts_is_deleted_too(db, views, victim):
+    """The save has checked the owner and is storing the view when the
+    deletion starts. The deletion must wait for it and then delete it, not
+    finish first and leave a view whose owner is gone."""
     user_id, plan_id = victim
-    calls = []
+    storing, errors = threading.Event(), []
 
-    def delete_then_concurrent_save(query):
-        deleted = views.delete_many(query)
-        if not calls:
-            save_view(views, user_id, "Saved mid-deletion")
-        calls.append(query)
-        return deleted
+    def slow_insert(doc):
+        storing.set()
+        time.sleep(1)          # the deletion starts meanwhile
+        return views.insert_one(doc)
 
-    result = users.delete_user(db, Views(views, delete_then_concurrent_save), user_id)
-    assert len(calls) == 2 and result["deleted_views"] == 3
+    def save():
+        try:
+            with pg_connect(autocommit=True) as conn:
+                saved_views.create_view(
+                    SimpleNamespace(insert_one=slow_insert), conn, user_id,
+                    saved_views.ViewCreate.model_validate(
+                        {"name": "Saved mid-deletion", "page": "flows", "filters": {}}))
+        except Exception as e:
+            errors.append(e)
+
+    saver = threading.Thread(target=save)
+    saver.start()
+    assert storing.wait(10)
+    result = users.delete_user(db, views, user_id)
+    saver.join(10)
+    assert errors == [] and result["deleted_views"] == 3
     assert footprint(db, views, user_id, plan_id) == GONE
 
 
