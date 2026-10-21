@@ -122,3 +122,57 @@ def mongo(loaded):
         run_ok("etl/load_mongo.py", "--month", month)
     yield client[TEST_DB]
     client.close()
+
+
+# --- login and users (test_auth.py, test_users.py) ---------------------------
+
+PASSWORD = "correct horse battery staple"
+JWT_TEST_SECRET = "test-only-secret-" + "x" * 32
+
+
+@pytest.fixture
+def make_user(db):
+    """make_user(email, *roles, active=True) -> user_id, with PASSWORD.
+    The users (and, by cascade, their plans) are deleted after the test."""
+    sys.path.insert(0, str(ROOT))
+    from api.passwords import hash_password
+    created = []
+
+    def make(email, *roles, active=True):
+        (user_id,) = db.execute(
+            """INSERT INTO app_user (email, display_name, password_hash, is_active)
+               VALUES (%s, %s, %s, %s) RETURNING user_id""",
+            (email, email, hash_password(PASSWORD), active)).fetchone()
+        for role in roles:
+            db.execute("INSERT INTO app_user_role SELECT %s, role_id FROM app_role WHERE name = %s",
+                       (user_id, role))
+        created.append(user_id)
+        return user_id
+
+    yield make
+    db.execute("DELETE FROM app_user WHERE user_id = ANY(%s)", (created,))
+
+
+@pytest.fixture
+def client(db, mongo, monkeypatch):
+    """The real FastAPI app on the test databases: get_pg yields the test
+    connection, and mongo() reads MONGO_DB on each call. Start-up (which
+    would open the real connection pool) doesn't run."""
+    sys.path.insert(0, str(ROOT))
+    from fastapi.testclient import TestClient
+
+    from api import db as api_db
+    from api.main import app
+
+    monkeypatch.setenv("JWT_SECRET", JWT_TEST_SECRET)
+    monkeypatch.setenv("MONGO_DB", TEST_DB)
+    app.dependency_overrides[api_db.get_pg] = lambda: db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def login(client, email, password=PASSWORD) -> dict:
+    """Authorization header for a user, through the real login route."""
+    r = client.post("/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    return {"Authorization": f"Bearer {r.json()['token']}"}

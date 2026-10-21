@@ -71,13 +71,18 @@ passenger demand, forecasts or guaranteed earnings.**
 | Analyst       | Explore activity and flows; preview, edit and save plans; manage saved views.                                 |
 | Administrator | All analyst capabilities, plus import history, rejected-row inspection, reconciliation and benchmark results. |
 
-**Current authentication limitation:** requests use `dev@ycq.local`, not a real
-login session. Administration checks the user's admin role, but the development
-user is assigned the available roles. JWT login and Argon2 password verification
-remain planned. See [api/auth.py](api/auth.py).
+**Authentication (implemented on `feature/login-roles`):** users log in with
+email and password (Argon2id hashes) and receive an 8-hour JWT. Every request
+reloads the user and roles from PostgreSQL, so analysts are refused on admin
+routes (403) and deactivated or deleted users immediately lose access (401). The
+temporary shared development user is no longer used. See [api/auth.py](api/auth.py)
+and [the implementation report](docs/login-roles-and-user-deletion.md).
 
 **Out of scope:** machine learning predictions, real-time GPS tracking, live
-booking or payments, mobile apps and a third database.
+booking or payments, mobile apps and a third database. Self-registration and
+email password reset are also out of scope: YCQ is an internal tool, so the
+three default accounts come from `.env` and administrators create any others
+(Administration → Users). The stack has no mail service for reset emails.
 
 ---
 
@@ -131,8 +136,8 @@ about every possible data property or the truth of the original TLC records.
 - **Loader:** downloads files, checks SHA-256 hashes, applies SQL, loads zones,
   imports missing months, builds summaries, populates MongoDB and reconciles.
   Fully loaded months are skipped.
-- **API:** reads both databases and handles plan/view writes. Real JWT
-  authentication is not implemented.
+- **API:** reads both databases and handles plan/view writes. Every route except
+  health and login requires a JWT; admin routes also require the admin role.
 - **Web, normal mode:** Vite builds the frontend; Nginx serves it and proxies
   `/api/*` to FastAPI.
 - **Web, development mode:** Node.js 22 runs Vite with mounted source files and
@@ -150,7 +155,7 @@ framework; the loader coordinates ingestion and derived-data reconciliation.
 | Component     | Original target responsibility                                                                                 | Current implementation note                                                                                                       |
 | ------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Loader        | Python 3.12 with Polars, PyArrow, psycopg, PyMongo and pyshp; process Parquet, CSV and shapefiles.             | The one-shot loader implements this pipeline.                                                                                     |
-| API           | FastAPI and Pydantic; read both databases and enforce JWT authentication and role-based access control (RBAC). | JWT authentication remains planned; the current identity is a development user.                                                   |
+| API           | FastAPI and Pydantic; read both databases and enforce JWT authentication and role-based access control (RBAC). | JWT authentication and RBAC are implemented: HS256, 8-hour tokens, roles re-read from PostgreSQL on each request.                 |
 | Web           | React 18, TypeScript, Vite, Leaflet and Recharts; interactive maps, chart dashboards and scenario management.  | Leaflet is installed; Recharts is the original proposed chart library, not an installed dependency or a finalized library choice. |
 | Reverse proxy | Nginx serves the normal-mode frontend on container port 80 and forwards `/api/*`.                              | Host access defaults to port 8080; development mode uses Vite instead.                                                            |
 
@@ -169,14 +174,14 @@ Sources: [Compose services](docker-compose.yml),
 
 ### 3.1 Core scope
 
-| Feature              | Owner   | Backend status                                                                            | Website status                                                                     |
-| -------------------- | ------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Login and roles      | Arif    | **Partial:** user/role schema and development-user dependency; real login is **planned**. | **Planned:** login page and token handling.                                        |
-| Activity Dashboard   | Kessler | **Partial:** example query only.                                                          | **Partial:** page and Leaflet map exist; activity controls and charts are planned. |
-| Activity exploration | Kessler | **Planned:** filtered activity and time-series aggregations.                              | **Planned:** hourly/weekday charts, rankings and saved-filter controls.            |
-| Allocation Planner   | Anna    | **Built:** scoring, fleet split, preview and PostgreSQL/MongoDB comparison.               | **Built:** settings, map, manual edits and store comparison.                       |
-| Saved plans          | Anna    | **Built:** owner-filtered CRUD, immutable versions and version comparison.                | **Built:** create/open/rename/delete, save versions and compare versions.          |
-| Saved views          | Caleb   | **Built:** owner-filtered create/list/get/rename/delete and validation.                   | **Planned:** save/open/rename/delete controls on Dashboard and Flow Explorer.      |
+| Feature              | Owner   | Backend status                                                                                              | Website status                                                                     |
+| -------------------- | ------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Login and roles      | Arif    | **Built:** Argon2id login, JWT, role checks on every router, seeded accounts, cross-database user deletion. | **Built:** login page, token handling, admin-only tab, Users section with Delete.  |
+| Activity Dashboard   | Kessler | **Partial:** example query only.                                                                            | **Partial:** page and Leaflet map exist; activity controls and charts are planned. |
+| Activity exploration | Kessler | **Planned:** filtered activity and time-series aggregations.                                                | **Planned:** hourly/weekday charts, rankings and saved-filter controls.            |
+| Allocation Planner   | Anna    | **Built:** scoring, fleet split, preview and PostgreSQL/MongoDB comparison.                                 | **Built:** settings, map, manual edits and store comparison.                       |
+| Saved plans          | Anna    | **Built:** owner-filtered CRUD, immutable versions and version comparison.                                  | **Built:** create/open/rename/delete, save versions and compare versions.          |
+| Saved views          | Caleb   | **Built:** owner-filtered create/list/get/rename/delete and validation.                                     | **Planned:** save/open/rename/delete controls on Dashboard and Flow Explorer.      |
 
 The supplied specification's "Operations Dashboard" and "Activity Explorer"
 describe intended activity capabilities. They are not two additional implemented
@@ -189,6 +194,7 @@ navigation pages. The current tab is **Activity Dashboard**.
 | Flow Explorer   | Caleb | Zone/month/day-type/time filters, top-10 destinations, map lines and month comparison.             | Saved-view controls and real authentication integration.  |
 | Administration  | Sean  | Import overview, reason breakdowns, rejected-row pagination, reconciliation and benchmark display. | Final benchmark measurements and report interpretation.   |
 | Benchmark suite | Sean  | Five questions, equivalent-answer checks, timings, sizes and query plans.                          | Run on the final evaluation machine and document results. |
+| User management | Arif  | Admins add analyst or admin accounts and delete them; default accounts come from `.env`.           | Optional: admin password reset.                           |
 
 ### 3.3 Optional ideas
 
@@ -516,7 +522,7 @@ MongoDB stores `timestamp` as a BSON date, represented here as an ISO string.
   "pickups": 369,
   "dropoffs": 245,
   "imbalance": 124,
-  "fareSum": 3773.50,
+  "fareSum": 3773.5,
   "fareTripCount": 322,
   "averageFare": 11.7189,
   "distanceSum": 714.25,
@@ -552,7 +558,7 @@ trips in the slice.
       "borough": "Manhattan",
       "trips": 1420,
       "share": 0.1141,
-      "averageFare": 14.20,
+      "averageFare": 14.2,
       "averageDistance": 2.35,
       "averageDurationSec": 780
     }
@@ -678,30 +684,41 @@ FastAPI's own routes do not all carry an `/api` prefix.
 
 **Access terminology**
 
-- **Public:** no `current_user` dependency in the current route.
-- **Dev user:** route uses the current development-user dependency; replace it
-  with real authentication later.
-- **Owner:** operations are filtered by the development user's ID today.
-- **Admin:** admin-role check exists, with the development-identity caveat.
+- **Public:** no login needed (`PUBLIC` in [api/main.py](api/main.py)).
+- **Any role:** a valid token for an active user with the analyst or admin role
+  (`ANY_ROLE`); otherwise 401 (no or bad token) or 403 (no role).
+- **Owner:** stored plans and views are additionally filtered by the caller's
+  user ID.
+- **Admin:** admin role required (`ADMIN_ONLY`); analysts get 403.
+
+### 8.0 Login and users
+
+| Method | Backend path              | Current access | Purpose                                                             |
+| ------ | ------------------------- | -------------- | ------------------------------------------------------------------- |
+| POST   | `/auth/login`             | Public         | Check email and password; return an 8-hour token and the user.      |
+| GET    | `/auth/me`                | Logged in      | The current user and roles.                                         |
+| GET    | `/admin/users`            | Admin          | Accounts with roles, active state and plan counts.                  |
+| DELETE | `/admin/users/{user_id}`  | Admin          | Delete a user in both databases; 404 unknown, 409 self, 503 retry.  |
+| POST   | `/admin/users`            | Admin          | Add an account with one role; 409 email taken, 422 weak password.   |
 
 ### 8.1 Health, geography and dashboard placeholder
 
 | Method | Backend path         | Current access | Purpose                                           |
 | ------ | -------------------- | -------------- | ------------------------------------------------- |
 | GET    | `/health`            | Public         | Both database connections and loaded months.      |
-| GET    | `/boroughs`          | Public         | Boroughs with shaped zones.                       |
-| GET    | `/zones`             | Public         | Shaped-zone attributes.                           |
-| GET    | `/zones/geojson`     | Public         | Simplified polygons for Leaflet.                  |
-| GET    | `/zones/centroids`   | Public         | Interior zone points for flow lines.              |
-| GET    | `/dashboard/example` | Public         | Placeholder hourly-row count, not dashboard KPIs. |
+| GET    | `/boroughs`          | Any role       | Boroughs with shaped zones.                       |
+| GET    | `/zones`             | Any role       | Shaped-zone attributes.                           |
+| GET    | `/zones/geojson`     | Any role       | Simplified polygons for Leaflet.                  |
+| GET    | `/zones/centroids`   | Any role       | Interior zone points for flow lines.              |
+| GET    | `/dashboard/example` | Any role       | Placeholder hourly-row count, not dashboard KPIs. |
 
 ### 8.2 Flow Explorer
 
 | Method | Backend path            | Current access | Purpose                                   |
 | ------ | ----------------------- | -------------- | ----------------------------------------- |
-| GET    | `/flows`                | Dev user       | Top destinations for one validated slice. |
-| GET    | `/flows/months`         | Dev user       | Months with destination snapshots.        |
-| GET    | `/flows/compare-months` | Dev user       | Compare the slice across loaded months.   |
+| GET    | `/flows`                | Any role       | Top destinations for one validated slice. |
+| GET    | `/flows/months`         | Any role       | Months with destination snapshots.        |
+| GET    | `/flows/compare-months` | Any role       | Compare the slice across loaded months.   |
 
 These routes read MongoDB snapshots. Geography routes read PostgreSQL/PostGIS.
 
@@ -717,8 +734,8 @@ These routes read MongoDB snapshots. Geography routes read PostgreSQL/PostGIS.
 | GET            | `/plans/{plan_id}/versions/{version_no}` | Open one saved version.                                   |
 | GET            | `/plans/{plan_id}/compare`               | Compare two versions of the same plan.                    |
 
-Plan routes use the development-user dependency; stored-plan operations enforce
-ownership. PostgreSQL stores the plans.
+Plan routes require any role; stored-plan operations enforce ownership.
+PostgreSQL stores the plans.
 
 ### 8.4 Saved views
 
@@ -730,7 +747,7 @@ ownership. PostgreSQL stores the plans.
 | DELETE     | `/views/{view_id}` | Delete an owned view.                               |
 
 Views live in MongoDB. Creation validates zone/borough references in PostgreSQL.
-All operations use the development-user identity and filter by owner.
+All operations require any role and filter by the logged-in owner.
 
 ### 8.5 Administration
 
@@ -773,12 +790,14 @@ use the original website-facing `/api` prefix.
 
 The final request bodies, permissions and rebuild semantics still need agreement.
 Retaining the original POST proposal does not add a working rebuild endpoint.
+The two `/api/auth/*` routes are now implemented as specified (section 8.0);
+they stay listed here as part of the original plan.
 
 ### 8.7 Original target behavior versus current behavior
 
 - **Authentication:** the original plan protects boroughs, zones and activity
-  routes with authenticated access. Current geography and example routes remain
-  public; that implementation difference does not remove the target requirement.
+  routes with authenticated access. This is now implemented: only `/health` and
+  `/auth/login` are public, and `tests/test_auth.py` checks every route.
 - **Plan creation:** the original `/api/plans` description combines creation with
   version 1. The current API creates the named parent first and saves a version
   separately. Preserve the original desired creation experience as a design
@@ -959,9 +978,10 @@ implementation task. See [application navigation](web/src/App.tsx).
 | ------------------ | ------------------------------------------------------------------------------------------------- |
 | Activity Dashboard | Real activity queries, filters, rankings, imbalances, hourly charts and comparisons.              |
 | Saved views        | Website controls and restoration of saved filter state.                                           |
-| Authentication     | Real password verification, JWT sessions and login UI.                                            |
-| Authorization      | Integrate actual authenticated identities with analyst/admin access rules.                        |
-| User deletion      | Remove MongoDB saved views before PostgreSQL account deletion; SQL cascades cannot reach MongoDB. |
+| Authentication     | **Done:** Argon2id password verification, 8-hour JWT sessions and login UI.                       |
+| Authorization      | **Done:** analyst/admin access rules on every router, checked against the database per request.   |
+| User deletion      | **Done:** MongoDB saved views removed before the PostgreSQL account; retryable on failure.        |
+| User creation      | **Done:** admins add accounts with one role; self-registration and email reset are out of scope.  |
 | Benchmarks         | Final-machine measurements and a supported interpretation of SQL/NoSQL trade-offs.                |
 
 ### 10.3 Decisions and report requirements

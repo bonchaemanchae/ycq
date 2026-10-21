@@ -8,6 +8,7 @@ import ReasonBars from "./admin/ReasonBars";
 import Reconciliation from "./admin/Reconciliation";
 import RejectedRows from "./admin/RejectedRows";
 import SectionNav, { type Section } from "./admin/SectionNav";
+import Users from "./admin/Users";
 import { latestRuns, n, type BenchmarkRun, type ImportBatch, type ReconRun } from "./admin/types";
 import "./admin/admin.css";
 
@@ -19,6 +20,7 @@ const SECTIONS: Section[] = [
   { id: "benchmarks", label: "Benchmarks" },
   { id: "rejected", label: "Rejected rows" },
   { id: "files", label: "Imported files" },
+  { id: "users", label: "Users" },
 ];
 
 // Administration, admin role only. Backend routes are in
@@ -114,6 +116,9 @@ export default function Admin() {
       </div>
       <div id="files" className="anchor">
         <ImportsTable batches={batches} />
+      </div>
+      <div id="users" className="anchor">
+        <Users />
       </div>
     </section>
   );

@@ -201,7 +201,14 @@ def create_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int,
     }
     if view.widgets is not None:
         doc["widgets"] = view.widgets
-    _insert(coll, doc)
+    # Holding the owner's row until the view is stored makes a user deletion
+    # (api/users.py) wait for this save and then delete the view with the rest;
+    # once the deletion has deactivated the owner, no view can be saved.
+    with conn.transaction():
+        if conn.execute("SELECT 1 FROM app_user WHERE user_id = %s AND is_active FOR SHARE",
+                        (owner_user_id,)).fetchone() is None:
+            raise ViewError("your account is no longer active")
+        _insert(coll, doc)
     return _out(doc)
 
 

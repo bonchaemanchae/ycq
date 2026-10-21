@@ -1,7 +1,7 @@
 """Saved views: owner-only CRUD on MongoDB, and the checks against PostgreSQL.
 
 Uses the test zones from conftest: 1-3 in Manhattan with map shapes, 264
-(Unknown) and 265 (N/A) without. Views belong to made-up owner ids and are
+(Unknown) and 265 (N/A) without. Views belong to two test users and are
 removed after each test.
 """
 import sys
@@ -25,11 +25,17 @@ GOOD = {"name": "Morning peak", "page": "dashboard",
 
 
 @pytest.fixture
-def views(mongo):
+def views(mongo, db):
+    """The collection, with OWNER and OTHER as active users (a view can only
+    be saved for one)."""
+    db.execute("""INSERT INTO app_user (user_id, email, display_name, password_hash)
+                  VALUES (%s, 'owner@test.local', 'Owner', '-'), (%s, 'other@test.local', 'Other', '-')
+                  ON CONFLICT DO NOTHING""", (OWNER, OTHER))
     coll = mongo[sv.COLLECTION]
     coll.delete_many({"ownerUserId": {"$in": [OWNER, OTHER]}})
     yield coll
     coll.delete_many({"ownerUserId": {"$in": [OWNER, OTHER]}})
+    db.execute("DELETE FROM app_user WHERE user_id IN (%s, %s)", (OWNER, OTHER))
 
 
 def create(views, db, owner=OWNER, **changes):
@@ -43,6 +49,14 @@ def test_create_and_get(views, db):
     assert v["createdAt"] == v["updatedAt"] and v["createdAt"].tzinfo is not None
     # What POST returns is exactly what GET reads back.
     assert sv.get_view(views, OWNER, v["_id"]) == v
+
+
+def test_an_inactive_or_unknown_owner_cannot_save(views, db):
+    db.execute("UPDATE app_user SET is_active = false WHERE user_id = %s", (OWNER,))
+    for owner in (OWNER, 0):
+        with pytest.raises(sv.ViewError, match="no longer active"):
+            create(views, db, owner=owner)
+        assert views.count_documents({"ownerUserId": owner}) == 0
 
 
 def test_list_shows_only_own_views_newest_first(views, db):

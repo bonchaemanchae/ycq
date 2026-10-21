@@ -25,7 +25,10 @@ cd ycq
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-Open `.env`, replace both `change-me` passwords with your own, and save. Then:
+Open `.env`, replace every `change-me` value and save: the two database
+passwords, `JWT_SECRET` (a random value of at least 32 characters; the API
+refuses to start without one) and the passwords of the three default accounts.
+Then:
 
 ```bash
 docker compose up -d --build      # build the images and start everything
@@ -36,9 +39,17 @@ The first start downloads and imports the data: about **5 minutes per month**.
 The website only comes up once the loader prints `all loaded: ...`. For a
 quicker first try, set `YCQ_MONTHS=2026-01` in `.env`. Then open:
 
-- **http://localhost:8080**, the website. The header should read
+- **http://localhost:8080**, the website. Log in as `admin@ycq.local`,
+  `analyst1@ycq.local` or `analyst2@ycq.local` with the passwords you put in
+  `.env`. The header should read
   *PostgreSQL up · MongoDB up · months: 2026-01, ...*
 - **http://localhost:8000/docs**, the API, where you can try every route.
+  Log in with `POST /auth/login`, then press **Authorize** and paste the token.
+
+**Already set up before login existed?** Add `YCQ_ADMIN_PASSWORD`,
+`YCQ_ANALYST1_PASSWORD` and `YCQ_ANALYST2_PASSWORD` to your `.env` (see
+`.env.example`), make sure `JWT_SECRET` is at least 32 characters, and run
+`docker compose up -d --build`.
 
 All `docker compose` commands must be run from the folder that contains
 `docker-compose.yml`.
@@ -122,7 +133,7 @@ Each feature from the report has one backend file and one page:
 | Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/Flows.tsx` | `/flows` |
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner` |
 | Saved Views (Caleb) | `api/routers/saved_views.py` | save and open buttons on the Dashboard and Flow pages | — |
-| Users and Security (Arif) | `api/auth.py` (replace `current_user`) | a new login page | — |
+| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, Users on the Administration page | — |
 | Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin` |
 
 The Dashboard and Flow Explorer pages call an `/example` route and print its
@@ -133,9 +144,10 @@ your real work.
 in `dashboard.py` is served at http://localhost:8000/dashboard/busiest. Get
 PostgreSQL with `conn=Depends(get_pg)`, MongoDB with `mongo()` (both from
 `api/db.py`), and the logged-in user with `user: User = Depends(current_user)`.
-Until login is built, every request is the dev user `dev@ycq.local`. Every
-route shows up at http://localhost:8000/docs where you can try it. A brand-new
-router file has to be added to `ROUTERS` in `api/main.py`.
+Every route shows up at http://localhost:8000/docs where you can try it. A
+brand-new router file has to be added in `api/main.py` to one of `PUBLIC` (no
+login), `ANY_ROLE` (analysts and admins) or `ADMIN_ONLY`; `tests/test_auth.py`
+calls every route to check it is protected as its list says.
 
 **Website.** Call the backend through `web/src/api.ts` and leave off the `/api`
 prefix: `api<MyType>("/dashboard/busiest")` or `post("/plans", body)`. The
@@ -154,6 +166,25 @@ Saved allocation plans are checked by the database itself, not only by the API
 - a saved version, its boroughs and its results can't be updated or deleted on
   their own. Changes are saved as a new version, and deleting the plan removes
   all its versions.
+
+### Users and login
+
+- **Accounts:** the three default accounts are created by the loader from `.env`
+  (`scripts/seed_users.py`); an account whose password variable is empty isn't
+  created. Changing a password in `.env` updates it on the next
+  `docker compose up -d`. Admins add any other accounts under
+  Administration → Users; there is no self sign-up.
+- **Passwords** are stored as Argon2id hashes. Logging in returns a token valid
+  for 8 hours; the website keeps it until the tab is closed. The token only
+  says who you are: your roles and whether your account still exists are
+  checked on every request, so changes apply immediately.
+- **Roles:** analysts use every page except Administration; admins use all of
+  them.
+- **Deleting a user** (Administration → Users) also deletes their saved plans
+  (PostgreSQL) and saved views (MongoDB). The order, and why a failure part way
+  can simply be retried, is explained at the top of `api/users.py`. A deleted
+  default account comes back, empty, on the next start while its password is
+  still in `.env`.
 
 ## Working with the database
 

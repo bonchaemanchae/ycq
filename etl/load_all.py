@@ -74,6 +74,7 @@ def main() -> None:
     if os.getenv("YCQ_DOWNLOAD", "1") != "0":
         run("scripts/download_data.py", "--months", *args.months)
     run("etl/setup_db.py")
+    run("scripts/seed_users.py")
     run("etl/load_zones.py")
     # Re-applies the MongoDB validators and indexes, so a change to them in
     # load_mongo.py reaches databases whose months are already loaded.
