@@ -1,9 +1,8 @@
-# INF2003 Database Systems: Master Technical Specification and Architecture Plan (YCQ / Traxio)
+# INF2003 Database Systems: Master Technical Specification and Architecture Plan (YCQ)
 
 **Module:** INF2003 Database Systems  
 **Project:** Yellow Cab Query (YCQ), NYC TLC Fleet Decision Support System  
-**Alternate name in the supplied specification:** Traxio; the current application uses YCQ  
-**Code baseline reviewed:** `0ca7a72` (includes the four feature merges on 18 October 2026)  
+**Code baseline reviewed:** `0ca7a72` (includes the four feature merges on 18 October 2026), updated for the Activity Dashboard on 25 October 2026  
 **Architecture:** PostgreSQL 16 + PostGIS 3.4, MongoDB 8.0, FastAPI and React
 
 **Original document version:** Final Master Plan (16 October 2026 Code Baseline).
@@ -143,8 +142,8 @@ about every possible data property or the truth of the original TLC records.
 - **Web, development mode:** Node.js 22 runs Vite with mounted source files and
   an API proxy. The API also reloads mounted source files.
 
-Recharts is **not installed**. Leaflet is the existing map library; choosing an
-additional chart library remains part of the unfinished dashboard work.
+Leaflet draws the maps and Recharts (2.13.3) draws the Activity Dashboard's
+charts.
 
 ### 2.3 Target architecture retained from the original plan
 
@@ -156,7 +155,7 @@ framework; the loader coordinates ingestion and derived-data reconciliation.
 | ------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Loader        | Python 3.12 with Polars, PyArrow, psycopg, PyMongo and pyshp; process Parquet, CSV and shapefiles.             | The one-shot loader implements this pipeline.                                                                                     |
 | API           | FastAPI and Pydantic; read both databases and enforce JWT authentication and role-based access control (RBAC). | JWT authentication and RBAC are implemented: HS256, 8-hour tokens, roles re-read from PostgreSQL on each request.                 |
-| Web           | React 18, TypeScript, Vite, Leaflet and Recharts; interactive maps, chart dashboards and scenario management.  | Leaflet is installed; Recharts is the original proposed chart library, not an installed dependency or a finalized library choice. |
+| Web           | React 18, TypeScript, Vite, Leaflet and Recharts; interactive maps, chart dashboards and scenario management.  | Leaflet for maps and Recharts for charts are both installed. |
 | Reverse proxy | Nginx serves the normal-mode frontend on container port 80 and forwards `/api/*`.                              | Host access defaults to port 8080; development mode uses Vite instead.                                                            |
 
 The original phrase "100% data fidelity" expresses the goal that copied
@@ -177,8 +176,8 @@ Sources: [Compose services](docker-compose.yml),
 | Feature              | Owner   | Backend status                                                                                              | Website status                                                                     |
 | -------------------- | ------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
 | Login and roles      | Arif    | **Built:** Argon2id login, JWT, role checks on every router, seeded accounts, cross-database user deletion. | **Built:** login page, token handling, admin-only tab, Users section with Delete.  |
-| Activity Dashboard   | Kessler | **Partial:** example query only.                                                                            | **Partial:** page and Leaflet map exist; activity controls and charts are planned. |
-| Activity exploration | Kessler | **Planned:** filtered activity and time-series aggregations.                                                | **Planned:** hourly/weekday charts, rankings and saved-filter controls.            |
+| Activity Dashboard   | Kessler | **Built:** totals, zone ranks and shares, imbalances, average fare/distance/duration (`$facet`, `$setWindowFields`). | **Built:** filters, map by pickups/drop-offs/imbalance, totals, imbalance lists, ranked zone table. |
+| Activity exploration | Kessler | **Built:** daily/hourly series with moving average, weekday and weekday-by-hour averages, zone comparison (`$median`, `$percentile`). | **Built:** activity and weekday charts, weekday-by-hour grid, compare up to three zones. Save/Open buttons come with saved views. |
 | Allocation Planner   | Anna    | **Built:** scoring, fleet split, preview and PostgreSQL/MongoDB comparison.                                 | **Built:** settings, map, manual edits and store comparison.                       |
 | Saved plans          | Anna    | **Built:** owner-filtered CRUD, immutable versions and version comparison.                                  | **Built:** create/open/rename/delete, save versions and compare versions.          |
 | Saved views          | Caleb   | **Built:** owner-filtered create/list/get/rename/delete and validation.                                     | **Planned:** save/open/rename/delete controls on Dashboard and Flow Explorer.      |
@@ -191,7 +190,7 @@ navigation pages. The current tab is **Activity Dashboard**.
 
 | Feature         | Owner | Implemented                                                                                        | Outstanding                                               |
 | --------------- | ----- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| Flow Explorer   | Caleb | Zone/month/day-type/time filters, top-10 destinations, map lines and month comparison.             | Saved-view controls and real authentication integration.  |
+| Flow Explorer   | Caleb | Zone/month/day-type/time filters, top-10 destinations, map lines and month comparison.             | Saved-view controls.                                      |
 | Administration  | Sean  | Import overview, reason breakdowns, rejected-row pagination, reconciliation and benchmark display. | Final benchmark measurements and report interpretation.   |
 | Benchmark suite | Sean  | Five questions, equivalent-answer checks, timings, sizes and query plans.                          | Run on the final evaluation machine and document results. |
 | User management | Arif  | Admins add analyst or admin accounts and delete them; default accounts come from `.env`.           | Optional: admin password reset.                           |
@@ -200,7 +199,7 @@ navigation pages. The current tab is **Activity Dashboard**.
 
 | Idea                            | Intended purpose                                    | Current boundary                                               |
 | ------------------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
-| Zone comparison                 | Compare two or three zones across activity metrics. | Optional; unassigned.                                          |
+| Zone comparison                 | Compare two or three zones across activity metrics. | Built into the Activity Dashboard (up to three zones).         |
 | Independent scenario comparison | Compare two separately saved allocation plans.      | Optional; existing comparison is between versions of one plan. |
 
 ### 3.4 Intended feature experience
@@ -701,7 +700,7 @@ FastAPI's own routes do not all carry an `/api` prefix.
 | DELETE | `/admin/users/{user_id}`  | Admin          | Delete a user in both databases; 404 unknown, 409 self, 503 retry.  |
 | POST   | `/admin/users`            | Admin          | Add an account with one role; 409 email taken, 422 weak password.   |
 
-### 8.1 Health, geography and dashboard placeholder
+### 8.1 Health, geography and Activity Dashboard
 
 | Method | Backend path         | Current access | Purpose                                           |
 | ------ | -------------------- | -------------- | ------------------------------------------------- |
@@ -710,7 +709,16 @@ FastAPI's own routes do not all carry an `/api` prefix.
 | GET    | `/zones`             | Any role       | Shaped-zone attributes.                           |
 | GET    | `/zones/geojson`     | Any role       | Simplified polygons for Leaflet.                  |
 | GET    | `/zones/centroids`   | Any role       | Interior zone points for flow lines.              |
-| GET    | `/dashboard/example` | Any role       | Placeholder hourly-row count, not dashboard KPIs. |
+| GET    | `/dashboard`         | Any role       | Totals and every zone with rank, share and imbalance. |
+| GET    | `/dashboard/series`  | Any role       | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average. |
+| GET    | `/dashboard/weekdays`| Any role       | Average per day for each weekday, and for each weekday and hour. |
+| GET    | `/dashboard/compare` | Any role       | One to three zones: hours, mean, median, 90th percentile, maximum and peak hour. |
+| GET    | `/dashboard/context` | Any role       | Loaded date range, latest import and the caller's recent plans. |
+
+The activity routes read MongoDB `zone_activity_timeseries` and share one set of
+filters, named like a saved view's: `dateFrom`, `dateTo`, `weekdays` (repeated),
+`hourFrom`, `hourTo` (an overnight range wraps), `boroughs`, `zoneIds` and
+`metric`. Unknown or out-of-range filters return 422.
 
 ### 8.2 Flow Explorer
 
@@ -790,8 +798,11 @@ use the original website-facing `/api` prefix.
 
 The final request bodies, permissions and rebuild semantics still need agreement.
 Retaining the original POST proposal does not add a working rebuild endpoint.
-The two `/api/auth/*` routes are now implemented as specified (section 8.0);
-they stay listed here as part of the original plan.
+The two `/api/auth/*` routes are now implemented as specified (section 8.0).
+The dashboard and activity routes are implemented as `/dashboard`,
+`/dashboard/series` (hourly or daily), `/dashboard/weekdays` and the zone list
+inside `/dashboard` (section 8.1). Both stay listed here as part of the original
+plan.
 
 ### 8.7 Original target behavior versus current behavior
 
@@ -976,7 +987,7 @@ implementation task. See [application navigation](web/src/App.tsx).
 
 | Area               | Remaining deliverable                                                                             |
 | ------------------ | ------------------------------------------------------------------------------------------------- |
-| Activity Dashboard | Real activity queries, filters, rankings, imbalances, hourly charts and comparisons.              |
+| Activity Dashboard | **Done:** activity queries on MongoDB, filters, rankings, imbalances, hourly charts, comparisons. |
 | Saved views        | Website controls and restoration of saved filter state.                                           |
 | Authentication     | **Done:** Argon2id password verification, 8-hour JWT sessions and login UI.                       |
 | Authorization      | **Done:** analyst/admin access rules on every router, checked against the database per request.   |

@@ -20,22 +20,30 @@ type Props = {
   onZoneClick?: (locationId: number) => void;
   // optional lines drawn above the zones (Flow Explorer); omit for none
   lines?: MapLine[];
+  // values can be negative (Activity Dashboard imbalance): positive zones are
+  // drawn green, negative ones red, darker the further from zero
+  diverging?: boolean;
 };
 
 // NYC taxi zone map shared by every page. Colour zones by passing values.
-export default function ZoneMap({ values = {}, label = "value", onZoneClick, lines }: Props) {
+export default function ZoneMap({ values = {}, label = "value", onZoneClick, lines, diverging = false }: Props) {
   const [zones, setZones] = useState<FeatureCollection | null>(null);
   useEffect(() => {
     api<FeatureCollection>("/zones/geojson").then(setZones).catch(console.error);
   }, []);
 
-  const max = Math.max(1, ...Object.values(values));
+  const max = Math.max(1, ...Object.values(values).map(Math.abs));
+  const fill = (v: number) => {
+    const strength = 0.15 + 0.85 * (Math.abs(v) / max);
+    if (!diverging) return `rgba(230, 160, 0, ${strength})`;
+    return v >= 0 ? `rgba(27, 138, 82, ${strength})` : `rgba(194, 56, 43, ${strength})`;
+  };
   const style = (f?: Feature): PathOptions => {
     const v = values[f?.properties?.location_id];
     return {
       weight: 0.5,
       color: "#555",
-      fillColor: v === undefined ? "#ccc" : `rgba(230, 160, 0, ${0.15 + 0.85 * (v / max)})`,
+      fillColor: v === undefined ? "#ccc" : fill(v),
       fillOpacity: 0.8,
     };
   };
@@ -55,7 +63,7 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick, lin
       />
       {zones && (
         // key forces a redraw when the values change
-        <GeoJSON key={JSON.stringify(values)} data={zones} style={style} onEachFeature={onEach} />
+        <GeoJSON key={`${diverging}:${JSON.stringify(values)}`} data={zones} style={style} onEachFeature={onEach} />
       )}
       {lines && (
         // Own pane above the zones (overlayPane is 400), so the lines stay on

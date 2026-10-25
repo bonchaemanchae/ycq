@@ -1,6 +1,6 @@
 # Login, Roles and Cross-Database User Deletion
 
-**Project:** Yellow Cab Query (YCQ / Traxio), INF2003 Database Systems, Team 24  
+**Project:** Yellow Cab Query (YCQ), INF2003 Database Systems, Team 24  
 **Branch:** `feature/login-roles`  
 **Master plan items delivered:** Login and roles (section 3.1), Authentication,
 Authorization and User deletion (section 10.2), the planned `/api/auth/*` routes

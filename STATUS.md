@@ -1,10 +1,10 @@
 # YCQ project status
 
-Team 24, as of 16 October 2026 (week 7). Owners are taken from the progress
-report's Gantt chart. Everything under **Done** was checked by running it: 54
-automated tests pass, and the full stack was run on the real January–March 2026
-data (10,982,814 accepted trips). Anything not checked that way is listed
-under **Not done**.
+Team 24, as of 25 October 2026 (week 8). Owners are taken from the progress
+report's Gantt chart. Everything under **Done** was checked by running it: all
+218 automated tests pass, and the full stack was run on the real
+January–March 2026 data (10,982,814 accepted trips). Anything not checked that
+way is listed under **Not done**.
 
 How to build, run and change things is at the end:
 [Working on the project](#working-on-the-project).
@@ -13,45 +13,19 @@ How to build, run and change things is at the end:
 
 ## Not done yet
 
-### Kessler: Activity Dashboard (W7–W11)
+### Caleb: Saved View buttons (W8–W10)
 
-*Report: "A filtered zone map with top zones, imbalances, hourly charts and
-comparisons … write `$facet` and `$setWindowFields` pipelines, then the map and
-charts."*
+*Report: "save, reopen, rename and delete filter sets … owner-only CRUD
+endpoints, with save and open buttons."*
 
-- [ ] API routes for the dashboard, querying **MongoDB** with `$facet` and `$setWindowFields`
-- [ ] The page: filters, zone map, top zones, imbalances, hourly charts, comparisons
-- [ ] A chart library. Only the map library is installed. Add one to
-  `web/package.json` (for example `recharts`), then `docker compose restart web`
-  in dev mode
-- [ ] Optional, suggested by the review: `$median` / `$percentile` over hourly
-  pickups for zone comparisons. It adds to the MongoDB side, which is the
-  project's weaker half
-
-**Where:** backend [api/routers/dashboard.py](api/routers/dashboard.py), page
-[web/src/pages/Dashboard.tsx](web/src/pages/Dashboard.tsx), shared map
-[web/src/components/ZoneMap.tsx](web/src/components/ZoneMap.tsx). Both files
-have a TODO and an example route to replace.
-
-**Data ready to use:** MongoDB `zone_activity_timeseries`: 567,817 hourly
-documents with pickups, drop-offs, imbalance, and fare, distance and duration
-sums and averages. It has indexes on `{meta.zoneId, timestamp}`,
-`{localDate, localHour}` and `{isoDayOfWeek, localHour}`. Reconciliation checks
-every one of these numbers against PostgreSQL. In the API, use `mongo()` from
-[api/db.py](api/db.py).
-
-### Caleb: Flow Explorer (W8–W11) and Saved Views (W8–W10)
-
-*Report: "Top ten destinations from a zone by month, day type and time of day
-… query them with `$unwind` and draw map lines." Saved Views: "save, reopen,
-rename and delete filter sets … owner-only CRUD endpoints, with save and open
-buttons."*
-
-- [ ] Flow Explorer API routes using `$unwind` on `origin_destination_snapshots`
-- [ ] Flow Explorer page with destination lines on the map
-- [ ] Saved Views: create, rename and delete routes (listing already exists),
-  always filtered by the logged-in owner
-- [ ] Save and open buttons on the Dashboard and Flow Explorer pages
+- [x] Flow Explorer API routes using `$unwind` on `origin_destination_snapshots`
+- [x] Flow Explorer page with destination lines on the map and month comparison
+- [x] Saved Views: create, list, open, rename and delete routes, always filtered
+  by the logged-in owner (`tests/test_saved_views.py`)
+- [ ] Save and open buttons on the Dashboard and Flow Explorer pages. The
+  Dashboard's filters already use the saved-view names (`dateFrom`, `dateTo`,
+  `weekdays`, `hourFrom`, `hourTo`, `boroughs`, `zoneIds`, `metric`), so a saved filters
+  object can be passed straight back to the page
 - [x] When a user is deleted: their MongoDB views are deleted **first**, then
   the PostgreSQL user (`api/users.py`, `DELETE /admin/users/{id}`). Uses
   `delete_views_for_user` from `api/saved_views.py`
@@ -216,6 +190,28 @@ Everything the report lists for this part is built and tested.
 - [x] Owner-only access in every query, and 15 planner tests plus 17
   database-rule tests
 
+### Activity Dashboard
+
+- [x] Five routes, all on MongoDB `zone_activity_timeseries` except the page
+  context: `/dashboard` (totals and every zone), `/dashboard/series`,
+  `/dashboard/weekdays`, `/dashboard/compare` and `/dashboard/context`
+- [x] One set of filters for every route: date range, weekdays, hour range
+  (overnight ranges such as 22:00 to 02:00 wrap), boroughs, zones and the map
+  metric. The names match the saved-view filters, so Save/Open can restore the
+  page
+- [x] MongoDB features: `$facet` (totals and zones in one pass), `$setWindowFields`
+  (zone ranks, pickup share, 7-day or 24-hour moving average), `$median` and
+  `$percentile` (hourly pickups when comparing zones)
+- [x] Page: filters, map coloured by pickups, drop-offs or imbalance (green for
+  more pickups, red for more drop-offs), totals, biggest imbalances, activity
+  over time (per day or per hour), averages by weekday and a weekday-by-hour
+  grid, compare up to three zones (click them on the map or tick them in the
+  table), the full ranked zone table, and the latest import with the user's
+  recent plans
+- [x] 27 tests in `tests/test_dashboard.py`: every total, rank, average and
+  moving average is checked against `zone_hour_observation` in PostgreSQL,
+  plus the 23-hour daylight-saving day, empty results and bad filters
+
 ### Team review (YCQ_REPO_REVIEW.md)
 
 | Item | Status |
@@ -230,7 +226,7 @@ Everything the report lists for this part is built and tested.
 | P7 `v_trip_flags` cost | Open: an `EXPLAIN ANALYZE` for the benchmark write-up (Sean) |
 | §3.1 Write role vs admin rebuild | Open (Arif / Sean): those parts aren't built yet |
 | §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user; saving a view locks its owner's row) |
-| §3.3 MongoDB side lighter than PostgreSQL | In progress: Dashboard and Flow Explorer (Kessler, Caleb) |
+| §3.3 MongoDB side lighter than PostgreSQL | Done: the Dashboard runs on MongoDB (`$facet`, `$setWindowFields`, `$median`, `$percentile`), and Flow Explorer reads the origin-destination snapshots |
 | §3.4 "Why MongoDB" justification | Open: report (everyone) |
 
 ---
@@ -279,7 +275,7 @@ To add your work:
 | Change MongoDB validators or indexes | Edit `ensure_collections` in `etl/load_mongo.py`, then `docker compose up -d --build loader` |
 | Re-import a month after changing an import rule | `docker compose run --rm loader python etl/delete_month.py --month 2026-01`, then `docker compose up -d` |
 | Look at the data | `docker compose exec postgres psql -U ycq -d ycq`, or DBeaver at `localhost:5432` and MongoDB Compass at `localhost:27017` |
-| Run the tests | `docker compose build loader` then `docker compose run --rm loader pytest tests` (all 56 should pass) |
+| Run the tests | `docker compose build loader` then `docker compose run --rm loader pytest tests` (all 218 should pass) |
 | Stop | `docker compose down` (data is kept). Never use `down -v` unless you mean to delete everything |
 
 ### Git
