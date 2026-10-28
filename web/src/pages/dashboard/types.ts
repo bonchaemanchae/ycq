@@ -49,7 +49,17 @@ export type ZoneRow = {
   averageDurationSec: number | null;
 };
 
-export type Summary = { totals: Totals; zones: ZoneRow[] };
+// Every activity answer says which MongoDB collection it was read from and
+// how long the query took (api/routers/dashboard.py).
+export type Answered = { source: string; queryMs: number };
+
+export const SOURCE_LABEL: Record<string, string> = {
+  zone_activity_timeseries: "hourly zone data",
+  zone_activity_daily: "daily zone summary",
+  borough_activity_hourly: "hourly borough summary",
+};
+
+export type Summary = Answered & { totals: Totals; zones: ZoneRow[] };
 
 // GET /dashboard/series
 export type Point = {
@@ -61,7 +71,7 @@ export type Point = {
   movingAverageDropoffs: number;
   averageFare: number | null;
 };
-export type Series = { bucket: "hour" | "day"; window: number; points: Point[] };
+export type Series = Answered & { bucket: "hour" | "day"; window: number; points: Point[] };
 
 // GET /dashboard/weekdays
 export type WeekdayRow = {
@@ -73,7 +83,7 @@ export type WeekdayRow = {
   averageDropoffs: number;
 };
 export type GridCell = { isoDayOfWeek: number; hour: number; averagePickups: number };
-export type Weekdays = { weekdays: WeekdayRow[]; grid: GridCell[] };
+export type Weekdays = Answered & { weekdays: WeekdayRow[]; grid: GridCell[] };
 
 // GET /dashboard/compare
 export type CompareZone = {
@@ -95,7 +105,7 @@ export type CompareZone = {
   averageDistance?: number | null;
   averageDurationSec?: number | null;
 };
-export type Compare = { zones: CompareZone[] };
+export type Compare = Answered & { zones: CompareZone[] };
 
 // GET /dashboard/context
 export type Context = {

@@ -4,6 +4,7 @@ import ZoneMap from "../components/ZoneMap";
 import ActivityChart from "./dashboard/ActivityChart";
 import DashboardFilters from "./dashboard/Filters";
 import Imbalances from "./dashboard/Imbalances";
+import Source from "./dashboard/Source";
 import TotalsRow from "./dashboard/Totals";
 import WeekdayChart from "./dashboard/WeekdayChart";
 import ZoneCompare from "./dashboard/ZoneCompare";
@@ -110,6 +111,7 @@ export default function Dashboard() {
               : "Darker = more. Grey = no matching hours. "}
             Click a zone to add it to the comparison.
           </p>
+          <Source answer={summary.data} />
         </div>
         <div className="card">
           <div className="card-title">Imbalance</div>
@@ -135,6 +137,7 @@ export default function Dashboard() {
             <ActivityChart series={series.data} bucket={shownBucket} onBucket={setBucket} hourlyAllowed={hourlyAllowed} />
           </div>
         )}
+        <Source answer={series.data} />
       </div>
 
       <div className="split">
@@ -144,6 +147,7 @@ export default function Dashboard() {
           {weekdays.data && (
             <div className={weekdays.loading ? "dash-stale" : ""}><WeekdayChart data={weekdays.data} /></div>
           )}
+          <Source answer={weekdays.data} />
         </div>
         <div className="card">
           <div className="card-title">Data and your plans</div>

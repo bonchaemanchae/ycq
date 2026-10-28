@@ -2,8 +2,10 @@
 
 Uses the sample months from conftest (zones 1-3 in Manhattan). Every number
 the pipelines give is checked against the same rows of zone_hour_observation
-in PostgreSQL, which the MongoDB documents are built from.
+in PostgreSQL, which the MongoDB documents are built from. The pre-summed
+collections the routes read are checked against the hourly documents.
 """
+import math
 import sys
 
 import pytest
@@ -12,6 +14,8 @@ from pydantic import ValidationError
 from conftest import ROOT, login
 
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "etl"))
+import load_mongo  # noqa: E402
 from api import dashboard  # noqa: E402
 from api.dashboard import ActivityFilters, CompareFilters, SeriesFilters  # noqa: E402
 
@@ -183,6 +187,58 @@ def test_compare_a_zone_with_no_hours(coll):
     assert c["zones"][1] == {"zoneId": 200, "zoneName": "Zone 200", "found": False}
 
 
+# --- pre-summed collections ------------------------------------------------------------
+
+def test_each_question_reads_the_smallest_collection_that_can_answer_it():
+    assert (dashboard.COLLECTION, dashboard.DAILY, dashboard.BOROUGH_HOURLY) == (
+        load_mongo.HOURLY, load_mongo.DAILY, load_mongo.BOROUGH_HOURLY)
+    every_hour = ActivityFilters(hourFrom=0, hourTo=23)
+    mornings = ActivityFilters(hourFrom=7, hourTo=9)
+    zones = ActivityFilters(zoneIds=[1, 2])
+    assert dashboard.source("summary", ActivityFilters()) == dashboard.DAILY
+    assert dashboard.source("summary", every_hour) == dashboard.DAILY
+    assert dashboard.source("summary", zones) == dashboard.DAILY
+    assert dashboard.source("summary", mornings) == dashboard.COLLECTION
+    for question in ("series", "weekdays"):
+        assert dashboard.source(question, mornings) == dashboard.BOROUGH_HOURLY
+        assert dashboard.source(question, zones) == dashboard.COLLECTION
+    assert dashboard.source("compare", ActivityFilters()) == dashboard.COLLECTION
+
+
+def same(a, b) -> bool:
+    """Equal, allowing for money sums added in a different order."""
+    if isinstance(a, dict):
+        return isinstance(b, dict) and a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    if isinstance(a, list):
+        return isinstance(b, list) and len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+    if isinstance(a, float) or isinstance(b, float):
+        return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-6)
+    return a == b
+
+
+@pytest.mark.parametrize("filters", [
+    {},
+    JANUARY,
+    {"dateFrom": "2026-03-08", "dateTo": "2026-03-08"},     # the 23-hour day
+    {**JANUARY, "weekdays": [1, 6]},
+    {"boroughs": ["Manhattan"], "metric": "imbalance"},
+    {"hourFrom": 7, "hourTo": 9},
+    {"hourFrom": 22, "hourTo": 2},                           # overnight
+    {"zoneIds": [1, 3]},
+    {"boroughs": ["Queens"]},                                # nothing matches
+])
+@pytest.mark.parametrize("question, pipeline", [
+    ("summary", lambda f: dashboard.summary_pipeline(ActivityFilters(**f))),
+    ("series", lambda f: dashboard.series_pipeline(SeriesFilters(**f, bucket="day"))),
+    ("series", lambda f: dashboard.series_pipeline(SeriesFilters(**f, bucket="hour"))),
+    ("weekdays", lambda f: dashboard.weekday_pipeline(ActivityFilters(**f))),
+])
+def test_pre_summed_collections_give_the_hourly_answer(mongo, question, pipeline, filters):
+    source = dashboard.source(question, ActivityFilters(**filters))
+    expected = list(mongo[dashboard.COLLECTION].aggregate(pipeline(filters)))
+    assert same(list(mongo[source].aggregate(pipeline(filters))), expected)
+
+
 # --- pipelines are fixed -------------------------------------------------------------
 
 def test_pipelines_take_only_values_from_the_client():
@@ -201,11 +257,13 @@ def test_routes_through_the_api(client, make_user):
                    headers=headers)
     assert r.status_code == 200, r.text
     assert r.json()["filters"]["weekdays"] == [1, 6]
+    assert r.json()["source"] == "zone_activity_daily" and r.json()["queryMs"] >= 0
     assert {z["zoneName"] for z in r.json()["zones"]} <= {"Zone A", "Zone B"}
 
     assert client.get("/dashboard/series?bucket=hour&dateFrom=2026-01-05&dateTo=2026-01-05",
                       headers=headers).json()["window"] == 24
-    assert len(client.get("/dashboard/weekdays", headers=headers).json()["weekdays"]) == 7
+    w = client.get("/dashboard/weekdays", headers=headers).json()
+    assert len(w["weekdays"]) == 7 and w["source"] == "borough_activity_hourly"
     assert client.get("/dashboard/compare?zoneIds=1&zoneIds=2", headers=headers).status_code == 200
 
     for bad in ("/dashboard?hourFrom=25", "/dashboard?weekdays=9", "/dashboard?extra=1",

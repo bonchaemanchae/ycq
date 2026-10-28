@@ -28,3 +28,4 @@
 .dash-grid tbody th { text-align: left; width: 40px; }
 .dash-grid td { padding: 0; height: 20px; border: 1px solid var(--surface); }
 .dash-grid tbody tr:hover { background: none; }
+.dash-source { margin: 6px 0 0; text-align: right; }

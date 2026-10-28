@@ -4,7 +4,11 @@ Served at /dashboard/... here and at /api/dashboard/... from the website.
 Every activity route takes the same filters as query parameters, named like a
 saved view's filters: dateFrom, dateTo, weekdays (repeat it, e.g.
 weekdays=1&weekdays=2), hourFrom, hourTo, boroughs, zoneIds and metric.
+
+Each answer also says which MongoDB collection it was read from ("source",
+chosen by dashboard.source) and how long the query took ("queryMs").
 """
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -18,8 +22,12 @@ from ..db import get_pg, mongo
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-def _coll():
-    return mongo()[dashboard.COLLECTION]
+def _answer(question: str, f: ActivityFilters, run) -> dict:
+    """Run one question on the collection dashboard.source picks for it."""
+    name = dashboard.source(question, f)
+    t0 = time.perf_counter()
+    result = run(mongo()[name])
+    return {**result, "source": name, "queryMs": round((time.perf_counter() - t0) * 1000, 1)}
 
 
 def zone_names(conn) -> dict[int, str]:
@@ -31,27 +39,29 @@ def zone_names(conn) -> dict[int, str]:
 def summary(f: Annotated[ActivityFilters, Query()], conn=Depends(get_pg)):
     """Totals (pickups, drop-offs, average fare, distance and duration) and
     every zone with its rank, share and imbalance, for the map and tables."""
-    return dashboard.summary(_coll(), f, zone_names(conn))
+    names = zone_names(conn)
+    return _answer("summary", f, lambda coll: dashboard.summary(coll, f, names))
 
 
 @router.get("/series")
 def series(f: Annotated[SeriesFilters, Query()]):
     """Pickups and drop-offs per hour or per day, with a moving average
     (24 hours or 7 days)."""
-    return dashboard.series(_coll(), f)
+    return _answer("series", f, lambda coll: dashboard.series(coll, f))
 
 
 @router.get("/weekdays")
 def weekdays(f: Annotated[ActivityFilters, Query()]):
     """Average pickups per day for each weekday, and for each weekday and hour."""
-    return dashboard.weekdays(_coll(), f)
+    return _answer("weekdays", f, lambda coll: dashboard.weekdays(coll, f))
 
 
 @router.get("/compare")
 def compare(f: Annotated[CompareFilters, Query()], conn=Depends(get_pg)):
     """One to three zones side by side, including the median and 90th
     percentile of their hourly pickups and their peak hour."""
-    return dashboard.compare_zones(_coll(), f, zone_names(conn))
+    names = zone_names(conn)
+    return _answer("compare", f, lambda coll: dashboard.compare_zones(coll, f, names))
 
 
 @router.get("/context")
