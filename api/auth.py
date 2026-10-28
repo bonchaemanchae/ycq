@@ -7,7 +7,9 @@ PostgreSQL again, so deactivating or deleting a user, or removing a role,
 takes effect on their very next request, without a token blacklist.
 
 Routes depend on `current_user` (any logged-in user) or on
-`require_role(...)`; api/main.py applies them per router.
+`require_role(...)`; api/main.py applies them per router. current_user also
+tells PostgreSQL who is calling (app.user_id), which its row-level security
+on saved plans uses (sql/016).
 """
 import os
 from dataclasses import dataclass
@@ -112,6 +114,9 @@ def current_user(creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
     if found is None:
         raise HTTPException(401, "not logged in, or the session has expired",
                             headers={"WWW-Authenticate": "Bearer"})
+    # For the rest of this request, on this connection. api/db.py clears it
+    # when the connection goes back to the pool.
+    conn.execute("SELECT set_config('app.user_id', %s, false)", (str(found[0].user_id),))
     return found[0]
 
 

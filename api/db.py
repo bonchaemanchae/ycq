@@ -25,8 +25,15 @@ def _pg_conninfo() -> str:
     )
 
 
+def _forget_user(conn) -> None:
+    """Clear who the last request was for (auth.current_user sets it), so a
+    connection's next request starts as no one: no saved plan is visible
+    until it logs in (row-level security, sql/016)."""
+    conn.execute("SELECT set_config('app.user_id', '', false)")
+
+
 pg_pool = ConnectionPool(_pg_conninfo(), open=False, min_size=1, max_size=10,
-                         kwargs={"autocommit": True})
+                         kwargs={"autocommit": True}, reset=_forget_user)
 mongo_client = MongoClient(
     host=os.getenv("MONGO_HOST", "localhost"),
     port=int(os.getenv("MONGO_PORT", "27017")),

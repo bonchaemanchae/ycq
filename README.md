@@ -248,6 +248,16 @@ Saved allocation plans are checked by the database itself, not only by the API
   and summaries. `ycq_read` is the same without the writes. The loader, the
   tests and `psql` use the owner (`POSTGRES_USER`). `tests/test_db_roles.py`
   runs the whole app as such a role and checks what it is refused.
+- **Row-level security on plans** (`sql/016`): PostgreSQL itself decides
+  which plans a query reaches. For each request the API tells it who is
+  calling (`app.user_id`, set in `api/auth.py` and cleared when the
+  connection goes back to the pool in `api/db.py`). A plan, its versions and
+  results can be read by their owner or an active admin (the Users section
+  counts everyone's plans) and changed only by their owner; with no user set
+  nothing is visible. So even a query that forgot `WHERE owner_user_id = ...`
+  would only reach the caller's plans. `v_plan_summary` uses
+  `security_invoker` so the view doesn't skip the rules. The owner role
+  bypasses them, so the loader and tests are unaffected.
 - **Deleting a user** (Administration → Users) also deletes their saved plans
   (PostgreSQL) and saved views (MongoDB). The order, and why a failure part way
   can simply be retried, is explained at the top of `api/users.py`. A deleted

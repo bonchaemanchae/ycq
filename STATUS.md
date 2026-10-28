@@ -75,8 +75,12 @@ token login, role checks and input validation."*
   `ycq_write` that the loader creates, instead of the superuser owner.
   Rebuilds stay in the loader scripts, which keep the owner (review §3.1).
   `tests/test_db_roles.py`: the whole app works as that role, and DDL,
-  TRUNCATE and writes to trips, imports and lookups are refused. **Next SQL
-  file: `016`**
+  TRUNCATE and writes to trips, imports and lookups are refused
+- [x] Row-level security on the four plan tables (Anna, `sql/016`): owner
+  reads and writes, active admins read only, no user sees nothing.
+  `api/auth.py` sets `app.user_id` per request and `api/db.py` clears it when
+  a connection returns to the pool. Tested with no owner filter at all.
+  **Next SQL file: `017`**
 
 **Data ready to use:** tables `app_user` (case-insensitive unique email),
 `app_role` (`analyst`, `admin`) and `app_user_role` (many-to-many).
