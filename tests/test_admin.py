@@ -8,13 +8,11 @@ import sys
 from collections import Counter
 
 import pytest
-from fastapi import HTTPException
 
 from conftest import ROOT, pg_connect
 from sample_data import JANUARY, JANUARY_REJECTS
 
 sys.path.insert(0, str(ROOT))
-from api.auth import User  # noqa: E402
 from api.routers import admin  # noqa: E402
 
 
@@ -93,10 +91,3 @@ def test_reconciliation_newest_first(conn):
     assert runs[0]["passed"] is False and runs[1]["passed"] is True
     assert runs[0]["reconciliation_run_id"] > runs[1]["reconciliation_run_id"]
     assert runs[0]["month"] == "2026-01"
-
-
-def test_only_admins_may_use_admin_routes():
-    with pytest.raises(HTTPException) as e:
-        admin.require_admin(User(1, "analyst@test", ["analyst"]))
-    assert e.value.status_code == 403
-    assert admin.require_admin(User(2, "admin@test", ["admin", "analyst"])).user_id == 2

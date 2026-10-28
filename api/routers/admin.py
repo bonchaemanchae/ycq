@@ -9,6 +9,9 @@ Served at /admin/... here and at /api/admin/... from the website.
   GET /admin/reconciliation   recent PostgreSQL-vs-MongoDB reconciliation runs
   GET /admin/benchmarks       the latest benchmark run (etl/benchmark.py)
 
+Only admins get here: api/main.py adds every route in this file with the
+admin_only check (tests/test_auth.py checks that).
+
 The query functions take a connection, so tests can call them directly
 without starting the web server.
 """
@@ -17,19 +20,11 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
-from ..auth import User, current_user
 from ..db import get_pg
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 PAGE_SIZE = 50
-
-
-def require_admin(user: User = Depends(current_user)) -> User:
-    """Only users with the admin role may use these routes (403 otherwise)."""
-    if "admin" not in user.roles:
-        raise HTTPException(403, "admin role required")
-    return user
 
 
 # --- queries -------------------------------------------------------------
@@ -138,7 +133,7 @@ def latest_benchmark(conn) -> dict:
 # --- routes --------------------------------------------------------------
 
 @router.get("/imports")
-def imports(conn=Depends(get_pg), _: User = Depends(require_admin)):
+def imports(conn=Depends(get_pg)):
     """Import batches with accepted, rejected and warned counts and reasons."""
     return list_imports(conn)
 
@@ -147,7 +142,7 @@ def imports(conn=Depends(get_pg), _: User = Depends(require_admin)):
 def rejected(batch: int,
              code: str | None = Query(None, pattern=r"^R[0-9]$"),
              page: int = Query(1, ge=1),
-             conn=Depends(get_pg), _: User = Depends(require_admin)):
+             conn=Depends(get_pg)):
     """Rejected rows of one batch, 50 per page, optionally one reason code."""
     try:
         return list_rejected(conn, batch, code, page)
@@ -157,12 +152,12 @@ def rejected(batch: int,
 
 @router.get("/reconciliation")
 def reconciliation(limit: int = Query(50, ge=1, le=500),
-                   conn=Depends(get_pg), _: User = Depends(require_admin)):
+                   conn=Depends(get_pg)):
     """Recent reconciliation runs, newest first."""
     return list_reconciliation(conn, limit)
 
 
 @router.get("/benchmarks")
-def benchmarks(conn=Depends(get_pg), _: User = Depends(require_admin)):
+def benchmarks(conn=Depends(get_pg)):
     """The latest benchmark run: timings, sizes and query plans per store."""
     return latest_benchmark(conn)

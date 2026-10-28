@@ -31,12 +31,16 @@ export default function Dashboard() {
   const [bucket, setBucket] = useState<"hour" | "day">("day");
   const [compareIds, setCompareIds] = useState<number[]>([]);
 
-  // Start with every loaded date.
+  // Start with the latest loaded month: about a third of the work of every
+  // date, so the first screen is quicker. "all dates" in the filters widens it.
   const bounds = context.data?.dateFrom && context.data.dateTo
     ? { dateFrom: context.data.dateFrom, dateTo: context.data.dateTo } : null;
   useEffect(() => {
     if (filters === null && bounds) {
-      setFilters({ ...bounds, weekdays: [], hourFrom: null, hourTo: null, boroughs: [], metric: "pickups" });
+      const monthStart = `${bounds.dateTo.slice(0, 8)}01`;
+      const dateFrom = monthStart > bounds.dateFrom ? monthStart : bounds.dateFrom;
+      setFilters({ ...bounds, dateFrom, weekdays: [], hourFrom: null, hourTo: null, boroughs: [],
+                   metric: "pickups" });
     }
   }, [bounds, filters]);
 
