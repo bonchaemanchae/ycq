@@ -1,10 +1,11 @@
-"""Database roles (sql/015, etl/setup_db.py) and row-level security on plans
-(sql/016).
+"""Database roles (sql/015, etl/setup_db.py), row-level security on plans
+(sql/016), and the API's MongoDB role (etl/load_mongo.py grant_app_access).
 
-A login role made the same way as the API's (ensure_app_role), so the real
-one's password is never touched, connected to the test database. It can read
-everything but write only users and plans, the whole app must still work
-through it, and it only ever reaches the calling user's plans.
+Logins made the same way as the API's, so the real ones' passwords are never
+touched, on the test databases. In PostgreSQL the role reads everything but
+writes only users and plans, and only ever reaches the calling user's plans;
+in MongoDB it reads everything but writes only saved views. The whole app
+must still work through both.
 """
 import os
 import sys
@@ -13,10 +14,14 @@ import psycopg
 import pytest
 from psycopg import errors
 
+from pymongo import MongoClient
+from pymongo.errors import OperationFailure
+
 from conftest import JWT_TEST_SECRET, PASSWORD, ROOT, TEST_DB, login, pg_connect
 
 sys.path.insert(0, str(ROOT / "etl"))
 sys.path.insert(0, str(ROOT))
+import load_mongo  # noqa: E402
 from setup_db import ensure_app_role  # noqa: E402
 
 ROLE, ROLE_PASSWORD = "ycq_app_test", "test-only-api-password"
@@ -34,9 +39,21 @@ def api_conn(loaded):
         owner.execute(f"DROP ROLE {ROLE}")     # it owns nothing and holds no grants of its own
 
 
+@pytest.fixture(scope="module")
+def mongo_app(mongo):
+    """A MongoDB client logged in with the API's role (APP_ROLE) on the test database."""
+    root = mongo.client
+    load_mongo.grant_app_access(root, TEST_DB, ROLE, ROLE_PASSWORD)
+    client = MongoClient(host=os.getenv("MONGO_HOST", "localhost"), port=int(os.getenv("MONGO_PORT", "27017")),
+                         username=ROLE, password=ROLE_PASSWORD, tz_aware=True)
+    yield client
+    client.close()
+    root.admin.command("dropUser", ROLE)
+
+
 @pytest.fixture
-def api_client(api_conn, mongo, monkeypatch):
-    """The real app, with every request on the API role's connection."""
+def api_client(api_conn, mongo_app, monkeypatch):
+    """The real app, with every request on the API's limited logins in both databases."""
     from fastapi.testclient import TestClient
 
     from api import db as api_db
@@ -44,6 +61,7 @@ def api_client(api_conn, mongo, monkeypatch):
 
     monkeypatch.setenv("JWT_SECRET", JWT_TEST_SECRET)
     monkeypatch.setenv("MONGO_DB", TEST_DB)
+    monkeypatch.setattr(api_db, "mongo_client", mongo_app)
     app.dependency_overrides[api_db.get_pg] = lambda: api_conn
     yield TestClient(app)
     app.dependency_overrides.clear()
@@ -94,7 +112,11 @@ def test_the_whole_app_works_as_the_api_role(api_client, db, make_user):
     manhattan = db.execute("SELECT borough_id FROM borough WHERE name = 'Manhattan'").fetchone()[0]
 
     for path in ("/health", "/zones", "/dashboard/context", "/admin/imports", "/admin/reconciliation",
-                 "/admin/benchmarks", "/admin/users", "/plans"):
+                 "/admin/benchmarks", "/admin/users", "/admin/orphaned-views", "/plans", "/views",
+                 "/dashboard?dateFrom=2026-01-01&dateTo=2026-01-31", "/dashboard/weekdays",
+                 "/dashboard/series?bucket=hour&dateFrom=2026-01-05&dateTo=2026-01-05",
+                 "/dashboard/compare?zoneIds=1", "/flows/months",
+                 "/flows?originZoneId=1&month=2026-01&dayType=weekday&timeBucket=am_peak"):
         assert api_client.get(path, headers=admin).status_code == 200, path
 
     # Plans: create, save two versions, rename, compare, delete
@@ -130,6 +152,31 @@ def test_the_whole_app_works_as_the_api_role(api_client, db, make_user):
     assert (r.json()["deleted_views"], r.json()["deleted_plans"]) == (1, 1)
     assert db.execute("SELECT count(*) FROM allocation_plan WHERE owner_user_id = %s",
                       (analyst_id,)).fetchone() == (0,)
+
+
+# --- the API's MongoDB role ------------------------------------------------------
+
+def test_the_api_mongodb_login_reads_every_collection(mongo_app):
+    db = mongo_app[TEST_DB]
+    for name in (load_mongo.HOURLY, load_mongo.DAILY, load_mongo.BOROUGH_HOURLY, load_mongo.OD, load_mongo.VIEWS):
+        db[name].find_one()                                      # raises if not allowed
+    assert db[load_mongo.HOURLY].count_documents({}) > 0
+
+
+@pytest.mark.parametrize("action", [
+    lambda db: db[load_mongo.HOURLY].insert_one({"timestamp": None}),
+    lambda db: db[load_mongo.DAILY].delete_many({}),
+    lambda db: db[load_mongo.OD].update_one({}, {"$set": {"totalTrips": 1}}),
+    lambda db: db[load_mongo.OD].drop(),
+    lambda db: db[load_mongo.VIEWS].create_index("name"),
+    lambda db: db.create_collection("sneaky"),
+    lambda db: db.client["other_database"]["x"].insert_one({}),
+], ids=["insert-hourly", "delete-daily", "update-flows", "drop-flows", "index-views", "create-collection",
+        "other-database"])
+def test_the_api_mongodb_login_writes_only_saved_views(mongo_app, action):
+    with pytest.raises(OperationFailure) as e:
+        action(mongo_app[TEST_DB])
+    assert e.value.code == 13        # Unauthorized
 
 
 # --- row-level security on plans (sql/016) -------------------------------------

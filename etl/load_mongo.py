@@ -200,23 +200,49 @@ def ensure_collections(db) -> None:
     db[VIEWS].create_index([("ownerUserId", ASCENDING), ("name", ASCENDING)], unique=True)
 
 
-def ensure_app_user(client) -> None:
-    """The API's own MongoDB login: read and write on the ycq database only.
+APP_ROLE = "ycqApp"
 
-    The loader runs as the root user it was started with; the API uses this
-    one instead (MONGO_APP_USER / MONGO_APP_PASSWORD), so it can't touch other
-    databases or users. Created on the first run, password and role updated
-    on later runs.
-    """
-    user, password = os.getenv("MONGO_APP_USER"), os.getenv("MONGO_APP_PASSWORD")
-    if not user or not password:
-        return
-    roles = [{"role": "readWrite", "db": os.getenv("MONGO_DB", "ycq")}]
+
+def app_privileges(db_name: str) -> list[dict]:
+    """What the API may do in MongoDB: read every collection, and change only
+    saved views (the activity data and flow snapshots are the loader's)."""
+    return [
+        {"resource": {"db": db_name, "collection": ""}, "actions": ["find"]},
+        {"resource": {"db": db_name, "collection": VIEWS}, "actions": ["find", "insert", "update", "remove"]},
+    ]
+
+
+def grant_app_access(client, db_name: str, user: str, password: str) -> None:
+    """Create or update the APP_ROLE role in db_name, and a login holding
+    only that role (any role it had before, such as readWrite, is replaced)."""
+    db = client[db_name]
+    privileges = app_privileges(db_name)
+    if db.command("rolesInfo", APP_ROLE)["roles"]:
+        db.command("updateRole", APP_ROLE, privileges=privileges, roles=[])
+    else:
+        db.command("createRole", APP_ROLE, privileges=privileges, roles=[])
+    roles = [{"role": APP_ROLE, "db": db_name}]
     if client.admin.command("usersInfo", user)["users"]:
         client.admin.command("updateUser", user, pwd=password, roles=roles)
     else:
         client.admin.command("createUser", user, pwd=password, roles=roles)
-    print(f"MongoDB app user {user!r}: readWrite on {roles[0]['db']}")
+
+
+def ensure_app_user(client) -> None:
+    """The API's own MongoDB login (MONGO_APP_USER / MONGO_APP_PASSWORD),
+    with least privilege like its PostgreSQL one (sql/015): it reads the ycq
+    database and writes only saved views. It can't change the activity data,
+    drop or create collections or indexes, or touch other databases or users.
+
+    The loader runs as the root user it was started with. Created on the
+    first run; password and privileges updated on later runs.
+    """
+    user, password = os.getenv("MONGO_APP_USER"), os.getenv("MONGO_APP_PASSWORD")
+    if not user or not password:
+        return
+    db_name = os.getenv("MONGO_DB", "ycq")
+    grant_app_access(client, db_name, user, password)
+    print(f"MongoDB app user {user!r}: reads {db_name}, writes only {VIEWS} (role {APP_ROLE})")
 
 
 def avg(total, count):

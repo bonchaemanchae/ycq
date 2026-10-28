@@ -62,8 +62,8 @@ services:
       MONGO_DB: ${MONGO_DB:-ycq}
       MONGO_USER: ${MONGO_USER:-ycq}
       MONGO_PASSWORD: ${MONGO_PASSWORD}
-      # The API's own login (readWrite on the ycq database only), created by
-      # the loader. The loader itself uses the root user above.
+      # The API's own login (reads the ycq database, writes only saved views;
+      # role ycqApp), created by the loader. The loader itself uses root above.
       MONGO_APP_USER: ${MONGO_APP_USER:-ycq_app}
       MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:-change-me-app}
       YCQ_MONTHS: ${YCQ_MONTHS:-2026-01 2026-02 2026-03}

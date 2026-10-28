@@ -305,6 +305,45 @@ def test_delete_views_for_user_only_removes_that_user(views, db):
     assert sv.delete_views_for_user(views, OWNER) == 0
 
 
+# --- orphaned views ---------------------------------------------------------------
+
+LOST = 987654     # no such user
+
+
+def test_a_user_deleted_outside_the_app_leaves_orphans_that_are_found_and_deleted(views, db):
+    create(views, db)
+    create(views, db, owner=OTHER, name="Theirs")
+    # Deleting the user straight in SQL skips the app's MongoDB step
+    db.execute("DELETE FROM app_user WHERE user_id = %s", (OTHER,))
+    now = datetime.now(timezone.utc)
+    sv._insert(views, {"ownerUserId": LOST, "name": "Lost", "page": "dashboard", "filters": {},
+                       "createdAt": now, "updatedAt": now})
+    try:
+        found = sv.orphaned_views(views, db)
+        assert {OTHER, LOST} <= set(found["owners"]) and OWNER not in found["owners"]
+        assert found["orphaned"] >= 2 and found["views"] >= 3
+        assert sv.delete_orphaned_views(views, db) >= 2
+        assert sv.orphaned_views(views, db)["orphaned"] == 0
+        assert [v["name"] for v in sv.list_views(views, OWNER)] == ["Morning peak"]   # kept
+    finally:
+        views.delete_many({"ownerUserId": LOST})
+
+
+def test_admin_checks_and_deletes_orphans_through_the_api(client, views, db, make_user):
+    make_user("boss@test.local", "admin")
+    admin = login(client, "boss@test.local")
+    now = datetime.now(timezone.utc)
+    sv._insert(views, {"ownerUserId": LOST, "name": "Lost", "page": "dashboard", "filters": {},
+                       "createdAt": now, "updatedAt": now})
+    try:
+        r = client.get("/admin/orphaned-views", headers=admin)
+        assert r.status_code == 200 and LOST in r.json()["owners"]
+        assert client.delete("/admin/orphaned-views", headers=admin).json()["deleted"] >= 1
+        assert client.get("/admin/orphaned-views", headers=admin).json()["orphaned"] == 0
+    finally:
+        views.delete_many({"ownerUserId": LOST})
+
+
 # --- routes ------------------------------------------------------------------
 
 def test_crud_through_the_api(client, views, make_user):

@@ -148,9 +148,14 @@ plans, and build the admin page."*
   file
 - [x] The website header shows whether both databases are up and which months
   are loaded
-- [x] The API logs in to MongoDB as `ycq_app` (read/write on `ycq` only), not
-  root. Checked: it's refused when it tries to read the admin users or write to
-  another database
+- [x] The API logs in to MongoDB as `ycq_app`, not root, holding only the
+  custom role `ycqApp` (Anna): read every collection in `ycq`, write only
+  `saved_analysis_views`. `tests/test_db_roles.py` checks it is refused
+  writes to activity data, drops, indexes and other databases, and runs the
+  whole app through it
+- [x] Orphaned saved views (Anna): Administration → Database check shows live
+  whether every view's owner exists in PostgreSQL, and can delete the
+  orphans; reconciliation records it in each run
 - [x] [README.md](README.md) is the user manual the brief asks for: setup,
   everyday commands, dev mode, database work, troubleshooting
 
@@ -251,7 +256,7 @@ Everything the report lists for this part is built and tested.
 | P7 Blocking refresh, root MongoDB login, unpinned zone files, Unknown/N/A boroughs | Fixed |
 | P7 `v_trip_flags` cost | Open: an `EXPLAIN ANALYZE` for the benchmark write-up (Sean) |
 | §3.1 Write role vs admin rebuild | Open (Arif / Sean): those parts aren't built yet |
-| §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user; saving a view locks its owner's row) |
+| §3.2 Deleting a user across two databases | Fixed: `api/users.py` (deactivate, MongoDB views, PostgreSQL user; saving a view locks its owner's row). Orphans from deletions outside the app are found and can be deleted on the Database check (`/admin/orphaned-views`) |
 | §3.3 MongoDB side lighter than PostgreSQL | Done: the Dashboard runs on MongoDB (`$facet`, `$setWindowFields`, `$median`, `$percentile`), and Flow Explorer reads the origin-destination snapshots |
 | §3.4 "Why MongoDB" justification | Open: report (everyone) |
 

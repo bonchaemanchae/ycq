@@ -89,6 +89,19 @@ def test_summary_validators_and_unique_keys(mongo):
         mongo["borough_activity_hourly"].insert_one({"localDate": "2026-01-05", "pickups": -1})
 
 
+def test_reconciliation_reports_orphaned_views_without_failing(mongo, db):
+    views = mongo["saved_analysis_views"]
+    views.insert_one(saved_view(ownerUserId=987654, name="Lost"))
+    try:
+        result = run_ok("etl/reconcile.py", "--month", "2026-01")
+        assert "PASSED" in result.stdout and "owners [987654] no longer exist" in result.stdout
+        (details,) = db.execute("SELECT details FROM reconciliation_run ORDER BY reconciliation_run_id DESC "
+                                "LIMIT 1").fetchone()
+        assert 987654 in details["orphaned_views"]["owners"]
+    finally:
+        views.delete_many({"ownerUserId": 987654})
+
+
 def saved_view(**overrides):
     now = datetime.now(timezone.utc)
     view = {"ownerUserId": 1, "name": "Morning peak", "page": "flows",

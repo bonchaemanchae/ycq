@@ -499,8 +499,9 @@ slightly between machines.
 - **Time-series validation limitation:** MongoDB 8.0 does not accept a collection
   validator on a time-series collection. The loader checks hourly documents
   itself; do not claim database-level JSON Schema enforcement there.
-- **Application credentials:** the API uses a MongoDB account with `readWrite`
-  on the application database, rather than the loader's root account.
+- **Application credentials:** the API uses a MongoDB account rather than the
+  loader's root account. It holds only the custom role `ycqApp`: read the
+  application database, write only `saved_analysis_views`.
 
 Source: [MongoDB loader, schemas and indexes](etl/load_mongo.py).
 

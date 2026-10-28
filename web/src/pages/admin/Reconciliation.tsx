@@ -1,4 +1,5 @@
 import { n, when, type ImportBatch, type ReconRun } from "./types";
+import ViewOwners from "./ViewOwners";
 
 type Pair = { label: string; pg: number | null; mongo: number | null };
 
@@ -26,7 +27,8 @@ export default function Reconciliation({ batches, runs, latest }: {
       <div className="card-title">Do both databases agree?</div>
       <p className="muted small">
         After every load, MongoDB's summaries are compared with PostgreSQL, hour by hour and zone by zone.
-        A month passes only if every number matches.
+        A month passes only if every number matches. Saved views are checked too: each must belong to a user
+        that still exists.
       </p>
       <div className="recon-months">
         {batches.map((b) => {
@@ -55,6 +57,7 @@ export default function Reconciliation({ batches, runs, latest }: {
           );
         })}
       </div>
+      <ViewOwners />
 
       <details className="more">
         <summary>All reconciliation runs ({runs.length})</summary>

@@ -7,6 +7,8 @@ Served at /admin/... here and at /api/admin/... from the website.
   GET /admin/rejected         one batch's rejected rows, 50 per page,
                               optionally for one reason code
   GET /admin/reconciliation   recent PostgreSQL-vs-MongoDB reconciliation runs
+  GET /admin/orphaned-views   saved views whose owner no longer exists, checked now
+  DELETE /admin/orphaned-views   delete them
   GET /admin/benchmarks       the latest benchmark run (etl/benchmark.py)
 
 Only admins get here: api/main.py adds every route in this file with the
@@ -20,7 +22,8 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
-from ..db import get_pg
+from .. import saved_views
+from ..db import get_pg, mongo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -158,6 +161,19 @@ def reconciliation(limit: int = Query(50, ge=1, le=500),
                    conn=Depends(get_pg)):
     """Recent reconciliation runs, newest first."""
     return list_reconciliation(conn, limit)
+
+
+@router.get("/orphaned-views")
+def orphaned_views(conn=Depends(get_pg)):
+    """How many saved views there are, and which belong to users that no
+    longer exist in PostgreSQL."""
+    return saved_views.orphaned_views(mongo()[saved_views.COLLECTION], conn)
+
+
+@router.delete("/orphaned-views")
+def delete_orphaned_views(conn=Depends(get_pg)):
+    """Delete the saved views whose owner no longer exists."""
+    return {"deleted": saved_views.delete_orphaned_views(mongo()[saved_views.COLLECTION], conn)}
 
 
 @router.get("/benchmarks")

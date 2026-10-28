@@ -64,7 +64,7 @@ All `docker compose` commands must be run from the folder that contains
 | `postgres` | PostgreSQL 16 + PostGIS | `localhost:5432` |
 | `mongo` | MongoDB 8.0 | `localhost:27017` |
 | `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
-| `api` | FastAPI backend. Logs in with its own limited accounts, which the loader creates: PostgreSQL as `POSTGRES_APP_USER` (reads everything, writes only users and plans; `sql/015`), MongoDB as `MONGO_APP_USER` (read/write on the `ycq` database only). Neither is the owner or root | http://localhost:8000/docs |
+| `api` | FastAPI backend. Logs in with its own limited accounts, which the loader creates: PostgreSQL as `POSTGRES_APP_USER` (reads everything, writes only users and plans; `sql/015`), MongoDB as `MONGO_APP_USER` (reads the `ycq` database, writes only saved views). Neither is the owner or root | http://localhost:8000/docs |
 | `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
 
 The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
@@ -248,6 +248,17 @@ Saved allocation plans are checked by the database itself, not only by the API
   and summaries. `ycq_read` is the same without the writes. The loader, the
   tests and `psql` use the owner (`POSTGRES_USER`). `tests/test_db_roles.py`
   runs the whole app as such a role and checks what it is refused.
+- **MongoDB role:** the API's MongoDB login holds only the custom role
+  `ycqApp` (`etl/load_mongo.py`): it can read every collection in `ycq` and
+  insert, update and delete only in `saved_analysis_views`. It can't change
+  the activity data or flow snapshots, create or drop collections or indexes,
+  or reach other databases. The loader uses root.
+- **Orphaned saved views:** a saved view's owner is a PostgreSQL user, a link
+  no foreign key can hold. Administration → Database check shows, live,
+  whether every view's owner still exists, and can delete views whose owner is
+  gone (`GET`/`DELETE /admin/orphaned-views`); each reconciliation run records
+  it too. The app's own user deletion never leaves orphans; a user deleted
+  straight in `psql`, or one database restored without the other, can.
 - **Row-level security on plans** (`sql/016`): PostgreSQL itself decides
   which plans a query reaches. For each request the API tells it who is
   calling (`app.user_id`, set in `api/auth.py` and cleared when the

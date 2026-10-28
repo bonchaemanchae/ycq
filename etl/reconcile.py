@@ -15,6 +15,10 @@ Origin-destination: every slice's total trips and destination count, the
 top destinations in order, and each destination's trips, share and averages,
 recomputed from od_summary.
 
+Saved views: whether every view's owner still exists in PostgreSQL. This is
+about the whole collection, not the month, so it is recorded in the run's
+details but doesn't fail it; the Administration page checks it live too.
+
 The result is stored in reconciliation_run. Exits 1 if anything differs.
 """
 import argparse
@@ -24,7 +28,8 @@ import sys
 from psycopg.types.json import Jsonb
 
 from common import mongo_db, next_month, parse_month, pg_connect
-from load_mongo import HOURLY, OD, SUMMARIES, TOP_N, destination_fields, hourly_fields
+from load_mongo import HOURLY, OD, SUMMARIES, TOP_N, VIEWS, destination_fields, hourly_fields
+from api.saved_views import orphaned_views  # noqa: E402  (load_mongo puts the repo root on the path)
 
 SAMPLE = 20   # mismatches kept in details
 HOURLY_FIELDS = list(hourly_fields(0, 0, 0, 0, 0, 0, 0, 0))
@@ -165,6 +170,8 @@ def main() -> int:
         for key in pg_od.keys() - seen:
             od_diffs.append({"slice": key, "problem": "missing in MongoDB"})
 
+        views = orphaned_views(db[VIEWS], conn)
+
         passed = (
             not zone_hour_diffs and not od_diffs and mongo_dupes == 0
             and all(c["mismatches"] == 0 for c in summaries.values())
@@ -179,6 +186,7 @@ def main() -> int:
                                "destinations": ["rank", *destination_fields(1, 1, 0, 0, 0, 0, 0, 0)]},
             "zone_hour_mismatch_sample": zone_hour_diffs[:SAMPLE],
             "summaries": summaries,
+            "orphaned_views": views,
             "od_mismatch_sample": [{**d, "slice": list(d["slice"])} for d in od_diffs[:SAMPLE]],
         }
         conn.execute(
@@ -204,6 +212,8 @@ def main() -> int:
         print(f"  {name:<24} postgres {c['postgres_docs']:>8,}   mongo {c['mongo_docs']:>8,}   "
               f"mismatches {c['mismatches']:,}")
     print(f"  od slices        postgres {len(pg_od):>10,}   mongo {len(seen):>10,}   mismatches {len(od_diffs):,}")
+    print(f"  saved views      {views['views']:,}, orphaned {views['orphaned']:,}"
+          + (f" (owners {views['owners']} no longer exist)" if views["owners"] else ""))
     for d in zone_hour_diffs[:5]:
         print(f"    {d}")
     for d in od_diffs[:5]:

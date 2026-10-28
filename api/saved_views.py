@@ -250,3 +250,30 @@ def delete_views_for_user(coll: Collection, user_id: int) -> int:
     after: PostgreSQL's cascade can't reach MongoDB, and the other order can
     leave orphaned views if the second step fails (review §3.2)."""
     return coll.delete_many({"ownerUserId": user_id}).deleted_count
+
+
+# --- orphaned views ------------------------------------------------------------
+
+def orphaned_views(coll: Collection, conn: psycopg.Connection) -> dict:
+    """Saved views whose owner no longer exists in PostgreSQL. MongoDB can't
+    hold a foreign key into PostgreSQL, so this check stands in for one: the
+    app's own deletion removes a user's views first, but a user deleted
+    straight in psql, or one database restored from a backup without the
+    other, would leave views nobody can reach (review §3.2).
+
+    Owners are read from MongoDB before PostgreSQL is asked, so a user created
+    in between can't look missing."""
+    owners = coll.distinct("ownerUserId")
+    found = {u for (u,) in conn.execute("SELECT user_id FROM app_user WHERE user_id = ANY(%s)", (owners,))}
+    missing = sorted(set(owners) - found)
+    return {
+        "views": coll.count_documents({}),
+        "orphaned": coll.count_documents({"ownerUserId": {"$in": missing}}) if missing else 0,
+        "owners": missing,
+    }
+
+
+def delete_orphaned_views(coll: Collection, conn: psycopg.Connection) -> int:
+    """Delete the views orphaned_views finds. Returns how many."""
+    missing = orphaned_views(coll, conn)["owners"]
+    return coll.delete_many({"ownerUserId": {"$in": missing}}).deleted_count if missing else 0
