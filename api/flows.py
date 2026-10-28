@@ -41,6 +41,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from pymongo.collection import Collection
 
+from .filters import ZoneId
+
 COLLECTION = "origin_destination_snapshots"
 
 DayType = Literal["weekday", "weekend"]
@@ -54,7 +56,7 @@ DEST_FIELDS = ("rank", "zoneId", "zoneName", "borough", "trips", "share",
 class CompareQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    originZoneId: int = Field(ge=1, le=263)   # 264 and 265 have no map shape
+    originZoneId: ZoneId
     dayType: DayType
     timeBucket: TimeBucket
 

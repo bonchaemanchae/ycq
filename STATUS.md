@@ -22,10 +22,17 @@ endpoints, with save and open buttons."*
 - [x] Flow Explorer page with destination lines on the map and month comparison
 - [x] Saved Views: create, list, open, rename and delete routes, always filtered
   by the logged-in owner (`tests/test_saved_views.py`)
+- [x] The filters are defined once (`api/filters.py`, Anna): the Dashboard
+  reads them, saved views store them (strict types), and the MongoDB
+  validator for `saved_analysis_views` is generated from the same model, so a
+  saved view always reopens on the Dashboard. Tests check the validator
+  enforces every rule
 - [ ] Save and open buttons on the Dashboard and Flow Explorer pages. The
   Dashboard's filters already use the saved-view names (`dateFrom`, `dateTo`,
   `weekdays`, `hourFrom`, `hourTo`, `boroughs`, `zoneIds`, `metric`), so a saved filters
-  object can be passed straight back to the page
+  object can be passed straight back to the page. **The Flow Explorer's own
+  choices (`originZoneId`, `month`, `dayType`, `timeBucket`) aren't saved-view
+  filters yet**: add them to `api/filters.py` first, and the validator follows
 - [x] When a user is deleted: their MongoDB views are deleted **first**, then
   the PostgreSQL user (`api/users.py`, `DELETE /admin/users/{id}`). Uses
   `delete_views_for_user` from `api/saved_views.py`

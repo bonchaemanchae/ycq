@@ -16,6 +16,7 @@ from conftest import ROOT
 
 sys.path.insert(0, str(ROOT))
 from api import saved_views as sv  # noqa: E402
+from api.filters import ActivityFilters  # noqa: E402
 
 OWNER, OTHER = 9001, 9002
 
@@ -120,10 +121,7 @@ def test_delete_own_view(views, db):
 
 
 @pytest.mark.parametrize("filters, message", [
-    ({"zoneIds": [1, 4]}, "4"),
-    ({"zoneIds": [999]}, "999"),
-    ({"zoneIds": [264]}, "264"),            # exists, but has no map shape
-    ({"zoneIds": [265]}, "265"),
+    ({"zoneIds": [1, 4]}, "4"),              # a real zone id, but not in the test database
     ({"boroughs": ["Atlantis"]}, "Atlantis"),
     ({"boroughs": ["Unknown"]}, "Unknown"),  # exists, but no shaped zone
     ({"boroughs": ["N/A"]}, "N/A"),
@@ -142,6 +140,9 @@ def test_unknown_zone_or_borough_is_refused(views, db, filters, message):
     {"filters": {"hourFrom": 24}},
     {"filters": {"zoneIds": [1.0]}},
     {"filters": {"zoneIds": ["1"]}},
+    {"filters": {"zoneIds": [0]}},
+    {"filters": {"zoneIds": [264]}},          # no map shape, so the dashboard can't show it
+    {"filters": {"boroughs": [""]}},
     {"filters": {"weekdays": [0]}},
     {"filters": {"dateFrom": "January"}},
     {"filters": {"dateFrom": "2026-02-30"}},
@@ -171,7 +172,7 @@ def widgets_of_size(chars):
 
 @pytest.mark.parametrize("at_limit, over_limit, message", [
     ({"filters": {"zoneIds": list(range(1, 264))}},
-     {"filters": {"zoneIds": list(range(1, 265))}}, "at most 263 items"),
+     {"filters": {"zoneIds": [*range(1, 264), 1]}}, "at most 263 items"),
     ({"filters": {"boroughs": [f"Borough {i}" for i in range(10)]}},
      {"filters": {"boroughs": [f"Borough {i}" for i in range(11)]}}, "at most 10 items"),
     ({"filters": {"boroughs": ["b" * 50]}},
@@ -194,6 +195,34 @@ def test_every_field_passes_the_real_validator(views, db):
                         "zoneIds": [1, 2, 3], "metric": "imbalance"},
                widgets={"map": {"zoom": 11}, "chart": None})
     assert sv.get_view(views, OWNER, v["_id"]) == v
+
+
+def test_saved_filters_always_reopen_on_the_dashboard():
+    """One definition (api/filters.py): whatever a view can store, the
+    dashboard accepts, and gets the same filters back."""
+    for filters in (GOOD["filters"], {}, {"hourFrom": 22, "hourTo": 2, "weekdays": [6, 7], "metric": "imbalance"}):
+        saved = sv.ViewCreate.model_validate({**GOOD, "filters": filters}).filters.model_dump(exclude_none=True)
+        assert ActivityFilters.model_validate(saved).model_dump(exclude_none=True) == {"metric": "pickups", **saved}
+
+
+@pytest.mark.parametrize("filters", [
+    {"zoneIds": [264]},
+    {"zoneIds": [*range(1, 264), 1]},
+    {"boroughs": [""]},
+    {"boroughs": [f"Borough {i}" for i in range(11)]},
+    {"weekdays": [8]},
+    {"hourFrom": "8"},
+    {"dateFrom": "5 January"},
+    {"metric": "fares"},
+    {"colour": "red"},
+])
+def test_mongodb_validator_enforces_the_same_filter_rules(views, filters):
+    """The validator is generated from the model, so a write that skips the
+    API is held to the same rules."""
+    now = datetime.now(timezone.utc)
+    with pytest.raises(sv.ViewError, match="rejected"):
+        sv._insert(views, {"ownerUserId": OWNER, "name": "Raw", "page": "dashboard", "filters": filters,
+                           "createdAt": now, "updatedAt": now})
 
 
 def test_validator_rejection_becomes_a_view_error(views, db):

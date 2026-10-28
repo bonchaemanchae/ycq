@@ -23,65 +23,30 @@ whatever the date range.
 
 Averages are always total sum / total count over the matching documents
 (fareSum / fareTripCount and so on), never an average of hourly averages, so
-they match what PostgreSQL gives for the same rows. The filter names are the
-same as a saved view's filters (api/saved_views.py), so a saved view can be
-reopened on this page.
+they match what PostgreSQL gives for the same rows. The filters are defined
+once in api/filters.py, shared with saved views, so a saved view can always
+be reopened on this page.
 
 Every value in a pipeline comes from a validated model field (ints, a fixed
 list of names, dates matching YYYY-MM-DD); operator names are fixed here, so
 nothing the client sends can become a MongoDB operator.
 """
-from datetime import date
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import Field
 from pymongo.collection import Collection
+
+from .filters import ActivityFilters, ZoneId
 
 COLLECTION = "zone_activity_timeseries"
 DAILY = "zone_activity_daily"
 BOROUGH_HOURLY = "borough_activity_hourly"
-
-IsoDate = Annotated[str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
-Hour = Annotated[int, Field(ge=0, le=23)]
-Weekday = Annotated[int, Field(ge=1, le=7)]
-ZoneId = Annotated[int, Field(ge=1, le=263)]       # 264 and 265 have no map shape
-BoroughName = Annotated[str, Field(min_length=1, max_length=50)]
-Metric = Literal["pickups", "dropoffs", "imbalance"]
 
 # Moving-average window per series bucket: one day of hours, one week of days.
 WINDOW = {"hour": 24, "day": 7}
 
 SUMS = ("pickups", "dropoffs", "fareSum", "fareTripCount", "distanceSum",
         "distanceTripCount", "durationSumSec", "durationTripCount")
-
-
-class ActivityFilters(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dateFrom: IsoDate | None = None
-    dateTo: IsoDate | None = None
-    weekdays: list[Weekday] | None = Field(None, max_length=7)
-    hourFrom: Hour | None = None          # hourFrom > hourTo means overnight, e.g. 22 to 2
-    hourTo: Hour | None = None
-    boroughs: list[BoroughName] | None = Field(None, max_length=10)
-    zoneIds: list[ZoneId] | None = Field(None, max_length=263)
-    metric: Metric = "pickups"
-
-    @field_validator("dateFrom", "dateTo")
-    @classmethod
-    def real_date(cls, v):
-        if v is not None:
-            try:
-                date.fromisoformat(v)
-            except ValueError:
-                raise ValueError(f"{v} is not a real date") from None
-        return v
-
-    @model_validator(mode="after")
-    def check(self):
-        if self.dateFrom and self.dateTo and self.dateFrom > self.dateTo:
-            raise ValueError("dateFrom must not be after dateTo")
-        return self
 
 
 class SeriesFilters(ActivityFilters):

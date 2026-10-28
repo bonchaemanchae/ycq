@@ -15,6 +15,7 @@ dashboard's pipelines run on whichever is smallest for the question
 """
 import argparse
 import os
+import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -24,7 +25,10 @@ from typing import Callable
 from pymongo import ASCENDING, DESCENDING
 from pymongo.errors import CollectionInvalid
 
-from common import mongo_db, next_month, parse_month, pg_connect
+from common import ROOT, mongo_db, next_month, parse_month, pg_connect
+
+sys.path.insert(0, str(ROOT))
+from api.filters import SavedFilters, mongo_schema  # noqa: E402
 
 HOURLY = "zone_activity_timeseries"
 DAILY = "zone_activity_daily"
@@ -150,20 +154,9 @@ VIEWS_SCHEMA = {
             "ownerUserId": {"bsonType": "int"},
             "name": {"bsonType": "string", "minLength": 1, "maxLength": 100},
             "page": {"enum": ["dashboard", "flows"]},
-            "filters": {
-                "bsonType": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "dateFrom": {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                    "dateTo": {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-                    "weekdays": {"bsonType": "array", "items": {"bsonType": "int", "minimum": 1, "maximum": 7}},
-                    "hourFrom": {"bsonType": "int", "minimum": 0, "maximum": 23},
-                    "hourTo": {"bsonType": "int", "minimum": 0, "maximum": 23},
-                    "boroughs": {"bsonType": "array", "items": {"bsonType": "string"}},
-                    "zoneIds": {"bsonType": "array", "items": {"bsonType": "int"}},
-                    "metric": {"enum": ["pickups", "dropoffs", "imbalance"]},
-                },
-            },
+            # Generated from the filter definition the API uses (api/filters.py),
+            # so the two can't disagree.
+            "filters": mongo_schema(SavedFilters),
             "widgets": {"bsonType": "object"},
             "createdAt": {"bsonType": "date"},
             "updatedAt": {"bsonType": "date"},

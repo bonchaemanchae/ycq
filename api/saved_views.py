@@ -10,22 +10,25 @@ call one of these and return the result.
     rename_view(coll, owner, view["_id"], "Morning peak")
 
 Every query includes ownerUserId, so someone else's view, a missing view and
-a malformed id all look the same: ViewNotFound. The request models mirror
-VIEWS_SCHEMA in etl/load_mongo.py; MongoDB's validator and the unique
-{ownerUserId, name} index still check every write.
+a malformed id all look the same: ViewNotFound. The filters are
+api/filters.py's SavedFilters, the same definition the dashboard uses; the
+validator VIEWS_SCHEMA in etl/load_mongo.py is generated from it, and it and
+the unique {ownerUserId, name} index still check every write.
 """
 import json
 from contextlib import contextmanager
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
 import psycopg
 from bson import ObjectId
 from bson.errors import InvalidId
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 from pymongo import DESCENDING, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, OperationFailure
+
+from .filters import SavedFilters
 
 COLLECTION = "saved_analysis_views"
 VALIDATION_FAILED = 121   # MongoDB's DocumentValidationFailure
@@ -43,16 +46,9 @@ class ViewNotFound(LookupError):
     """No such view, it belongs to someone else, or the id is malformed (a 404)."""
 
 
-# --- request models (mirror VIEWS_SCHEMA) -----------------------------------
+# --- request models (the rest of VIEWS_SCHEMA) ------------------------------
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
-IsoDate = Annotated[str, Field(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")]
-# strict: without it Pydantic turns "8" and true into ints, which the
-# validator would never have seen.
-Hour = Annotated[int, Field(strict=True, ge=0, le=23)]
-Weekday = Annotated[int, Field(strict=True, ge=1, le=7)]
-ZoneId = Annotated[int, Field(strict=True)]
-BoroughName = Annotated[str, Field(max_length=50)]
 MAX_WIDGETS_CHARS = 10_000
 
 
@@ -61,41 +57,12 @@ def widgets_size(widgets: dict) -> int:
     return len(json.dumps(widgets, separators=(",", ":"), ensure_ascii=False, default=str))
 
 
-class ViewFilters(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    dateFrom: IsoDate | None = None
-    dateTo: IsoDate | None = None
-    weekdays: list[Weekday] | None = Field(None, max_length=7)
-    hourFrom: Hour | None = None          # hourFrom > hourTo is allowed (overnight)
-    hourTo: Hour | None = None
-    boroughs: list[BoroughName] | None = Field(None, max_length=10)
-    zoneIds: list[ZoneId] | None = Field(None, max_length=263)
-    metric: Literal["pickups", "dropoffs", "imbalance"] | None = None
-
-    @field_validator("dateFrom", "dateTo")
-    @classmethod
-    def real_date(cls, v):
-        if v is not None:
-            try:
-                date.fromisoformat(v)
-            except ValueError:
-                raise ValueError(f"{v} is not a real date") from None
-        return v
-
-    @model_validator(mode="after")
-    def check(self):
-        if self.dateFrom and self.dateTo and self.dateFrom > self.dateTo:
-            raise ValueError("dateFrom must not be after dateTo")
-        return self
-
-
 class ViewCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Name
     page: Literal["dashboard", "flows"]   # optional in the validator, but needed to reopen a view
-    filters: ViewFilters
+    filters: SavedFilters
     widgets: dict[str, Any] | None = None
 
     @model_validator(mode="after")
@@ -149,7 +116,7 @@ def _insert(coll: Collection, doc: dict) -> None:
         coll.insert_one(doc)
 
 
-def check_references(conn: psycopg.Connection, filters: ViewFilters) -> None:
+def check_references(conn: psycopg.Connection, filters: SavedFilters) -> None:
     """MongoDB can't hold a foreign key into PostgreSQL, so check here that
     every zone exists and has a map shape (the rule the planner's
     allocation_result_zone trigger uses), and every borough has a shaped zone
