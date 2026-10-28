@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import SavedViews, { type SavedView } from "../components/SavedViews";
 import ZoneMap, { type MapLine } from "../components/ZoneMap";
 import DestinationTable from "./flows/DestinationTable";
 import FlowControls from "./flows/FlowControls";
@@ -68,6 +69,19 @@ export default function Flows() {
   }, [shown, centre]);
   const values = Object.fromEntries((shown?.destinations ?? []).map((d) => [d.zoneId, d.trips]));
 
+  // A saved view holds the four choices, plus whether the month comparison is open.
+  const viewState = useMemo(() => query && { filters: query, widgets: { compareMonths: comparing } },
+                            [query, comparing]);
+  const openView = useCallback((v: SavedView) => {
+    setQuery(v.filters as Query);
+    setComparing(v.widgets?.compareMonths === true);
+  }, []);
+  const describeView = useCallback((f: Record<string, unknown>) => {
+    const q = f as Query;
+    return [zoneName.get(q.originZoneId) ?? `Zone ${q.originZoneId}`, monthLabel(q.month),
+            DAY_TYPES.find((d) => d.value === q.dayType)?.label, bucketLabel(q.timeBucket)].join(" · ");
+  }, [zoneName]);
+
   const setupError = zones.error || centroids.error || months.error;
   const origin = s ? zoneName.get(s.originZoneId) ?? `Zone ${s.originZoneId}` : "";
   const sliceLabel = s
@@ -93,6 +107,7 @@ export default function Flows() {
       {query && months.data && (
         <FlowControls query={query} onChange={setQuery} zones={zones.data ?? []} months={months.data} />
       )}
+      {query && <SavedViews page="flows" current={viewState} describe={describeView} onOpen={openView} />}
       {slice.error && <div className="alert error"><span>{slice.error}</span></div>}
 
       <div className="split">

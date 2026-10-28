@@ -2,9 +2,17 @@
 
 Served at /views/... here and at /api/views/... from the website. Views live
 in MongoDB (saved_analysis_views); the validator and indexes are created by
-etl/load_mongo.py. The save and open buttons go on the Activity Dashboard and
-Flow Explorer pages.
+etl/load_mongo.py. The Activity Dashboard and Flow Explorer use them through
+their "Saved views" panel (web/src/components/SavedViews.tsx).
+
+  GET    /views?page=dashboard   your views, newest first (optionally one page's)
+  POST   /views                  save {name, page, filters, widgets}
+  GET    /views/{id}             one view
+  PATCH  /views/{id}             rename, or store new filters or widgets
+  DELETE /views/{id}
 """
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from .. import saved_views as views
@@ -27,9 +35,9 @@ def _http(e: Exception) -> HTTPException:
 
 
 @router.get("")
-def list_views(user: User = Depends(current_user)):
+def list_views(page: Literal["dashboard", "flows"] | None = None, user: User = Depends(current_user)):
     """The caller's own saved views, newest first."""
-    return views.list_views(_coll(), user.user_id)
+    return views.list_views(_coll(), user.user_id, page)
 
 
 @router.post("", status_code=201)
@@ -49,9 +57,10 @@ def get_view(view_id: str, user: User = Depends(current_user)):
 
 
 @router.patch("/{view_id}")
-def rename_view(view_id: str, body: views.ViewRename, user: User = Depends(current_user)):
+def update_view(view_id: str, body: views.ViewUpdate, conn=Depends(get_pg),
+                user: User = Depends(current_user)):
     try:
-        return views.rename_view(_coll(), user.user_id, view_id, body.name)
+        return views.update_view(_coll(), conn, user.user_id, view_id, body)
     except (views.ViewError, views.ViewNotFound) as e:
         raise _http(e)
 

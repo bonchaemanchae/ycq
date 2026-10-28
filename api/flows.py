@@ -36,18 +36,13 @@ rounds the averages as Python floats and PostgreSQL rounds exact numerics, so
 a value ending in exactly 5 can differ in the 4th decimal (zone 161 -> 237:
 0.9487 vs 0.9488 miles); everything else matches.
 """
-from typing import Literal
-
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from pymongo.collection import Collection
 
-from .filters import ZoneId
+from .filters import DayType, Month, TimeBucket, ZoneId
 
 COLLECTION = "origin_destination_snapshots"
 
-DayType = Literal["weekday", "weekend"]
-# Local pickup hour: night 0-5, am_peak 6-9, midday 10-15, pm_peak 16-19, evening 20-23
-TimeBucket = Literal["night", "am_peak", "midday", "pm_peak", "evening"]
 
 DEST_FIELDS = ("rank", "zoneId", "zoneName", "borough", "trips", "share",
                "averageFare", "averageDistance", "averageDurationSec")
@@ -62,7 +57,7 @@ class CompareQuery(BaseModel):
 
 
 class SliceQuery(CompareQuery):
-    month: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+    month: Month
 
 
 # --- pipelines ---------------------------------------------------------------

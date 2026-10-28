@@ -189,6 +189,32 @@ ms, with the same answer. Every response says which collection answered
 chart. The loader builds the two pre-summed collections with the others, and
 reconciliation checks every field of every document against PostgreSQL.
 
+### Saved views
+
+The Activity Dashboard and Flow Explorer each have a **Saved views** panel:
+name the page as it is and save it, open it again later, save changes into
+it, rename it or delete it. Views are each user's own and live in MongoDB
+(`saved_analysis_views`), so this is the app's CRUD on the NoSQL side, as
+plans are on the PostgreSQL side.
+
+| Route | What it does |
+|---|---|
+| `GET /views?page=dashboard` | Your views, newest first (optionally one page's) |
+| `POST /views` | Save `{name, page, filters, widgets}` |
+| `GET /views/{id}` | One view |
+| `PATCH /views/{id}` | Rename, or store the page's new filters or widgets |
+| `DELETE /views/{id}` | Delete it |
+
+`filters` are the page's own, defined once in `api/filters.py`: the
+dashboard's date range, weekdays, hours, boroughs and metric, or the Flow
+Explorer's origin zone, month, day type and time of day. A view holds only
+its page's filters, so it always reopens as saved, and MongoDB's
+`$jsonSchema` validator is generated from the same definition. `widgets` is
+free-form: the dashboard keeps its compared zones and hourly or daily chart
+there, the Flow Explorer whether the month comparison is open. A zone or
+borough is checked against PostgreSQL before a view is saved, since MongoDB
+can't hold a foreign key into it.
+
 ### Rules the database enforces on saved plans
 
 Saved allocation plans are checked by the database itself, not only by the API

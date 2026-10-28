@@ -27,12 +27,13 @@ endpoints, with save and open buttons."*
   validator for `saved_analysis_views` is generated from the same model, so a
   saved view always reopens on the Dashboard. Tests check the validator
   enforces every rule
-- [ ] Save and open buttons on the Dashboard and Flow Explorer pages. The
-  Dashboard's filters already use the saved-view names (`dateFrom`, `dateTo`,
-  `weekdays`, `hourFrom`, `hourTo`, `boroughs`, `zoneIds`, `metric`), so a saved filters
-  object can be passed straight back to the page. **The Flow Explorer's own
-  choices (`originZoneId`, `month`, `dayType`, `timeBucket`) aren't saved-view
-  filters yet**: add them to `api/filters.py` first, and the validator follows
+- [x] Saved views panel on the Dashboard and Flow Explorer (Anna,
+  `web/src/components/SavedViews.tsx`): save the page as it is, open, save
+  changes into the open view, rename, delete. The Flow Explorer's four
+  choices are saved-view filters too, and a view holds only its own page's
+  (`filters.page_problem`). `PATCH /views/{id}` now also stores new filters or
+  widgets, and `GET /views?page=` lists one page's. Checked in a browser on
+  both pages; route tests cover the full create-read-update-delete cycle
 - [x] When a user is deleted: their MongoDB views are deleted **first**, then
   the PostgreSQL user (`api/users.py`, `DELETE /admin/users/{id}`). Uses
   `delete_views_for_user` from `api/saved_views.py`

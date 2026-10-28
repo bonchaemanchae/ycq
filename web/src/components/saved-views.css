@@ -1,0 +1,19 @@
+/* The Saved views panel on the Activity Dashboard and Flow Explorer. */
+
+.saved-form { display: flex; gap: 6px; margin-bottom: 12px; }
+.saved-form input { flex: 1; min-width: 0; }
+.saved-list {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 6px;
+}
+.saved-list li { border: 1px solid var(--line); border-radius: 10px; }
+.saved-list li.open { background: var(--yellow-soft); border-color: #f0dc8a; }
+.saved-item {
+  display: grid; gap: 2px; width: 100%; text-align: left;
+  border: none; background: none; padding: 8px 10px 4px; border-radius: 10px;
+}
+.saved-item:hover:not(:disabled) { background: rgba(0, 0, 0, 0.03); }
+.saved-name { font-weight: 600; }
+.saved-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 6px; }
+.saved-actions button:not(.link) { padding: 4px 10px; }
+.saved-list .saved-form { padding: 6px; margin: 0; }

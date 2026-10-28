@@ -5,9 +5,16 @@ PostgreSQL has to be checked), so the FastAPI routes only parse the request,
 call one of these and return the result.
 
     coll = mongo()["saved_analysis_views"]
-    view = create_view(coll, conn, owner, ViewCreate(name="AM peak", page="flows",
-                                                     filters={"zoneIds": [161]}))
+    view = create_view(coll, conn, owner, ViewCreate(
+        name="AM peak", page="flows",
+        filters={"originZoneId": 161, "month": "2026-01", "dayType": "weekday", "timeBucket": "am_peak"}))
     rename_view(coll, owner, view["_id"], "Morning peak")
+    update_view(coll, conn, owner, view["_id"], ViewUpdate(filters=...))   # the page's new filters
+
+A view belongs to one page and holds only that page's filters
+(filters.page_problem), so it always reopens as saved. Widgets hold the rest
+of the page's layout in whatever shape the page likes (the dashboard's
+compared zones, say); MongoDB stores it as given.
 
 Every query includes ownerUserId, so someone else's view, a missing view and
 a malformed id all look the same: ViewNotFound. The filters are
@@ -28,7 +35,7 @@ from pymongo import DESCENDING, ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
-from .filters import SavedFilters
+from .filters import SavedFilters, page_problem
 
 COLLECTION = "saved_analysis_views"
 VALIDATION_FAILED = 121   # MongoDB's DocumentValidationFailure
@@ -57,6 +64,11 @@ def widgets_size(widgets: dict) -> int:
     return len(json.dumps(widgets, separators=(",", ":"), ensure_ascii=False, default=str))
 
 
+def check_widgets(widgets: dict | None) -> None:
+    if widgets is not None and (size := widgets_size(widgets)) > MAX_WIDGETS_CHARS:
+        raise ValueError(f"widgets is {size:,} characters as JSON; the limit is {MAX_WIDGETS_CHARS:,}")
+
+
 class ViewCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -67,15 +79,27 @@ class ViewCreate(BaseModel):
 
     @model_validator(mode="after")
     def check(self):
-        if self.widgets is not None and (size := widgets_size(self.widgets)) > MAX_WIDGETS_CHARS:
-            raise ValueError(f"widgets is {size:,} characters as JSON; the limit is {MAX_WIDGETS_CHARS:,}")
+        check_widgets(self.widgets)
+        if problem := page_problem(self.page, self.filters):
+            raise ValueError(problem)
         return self
 
 
-class ViewRename(BaseModel):
+class ViewUpdate(BaseModel):
+    """A new name, new filters, new widgets, or any of them together. The
+    page stays the one the view was saved for."""
     model_config = ConfigDict(extra="forbid")
 
-    name: Name
+    name: Name | None = None
+    filters: SavedFilters | None = None
+    widgets: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def check(self):
+        if self.name is None and self.filters is None and self.widgets is None:
+            raise ValueError("nothing to change: send a name, filters or widgets")
+        check_widgets(self.widgets)
+        return self
 
 
 # --- helpers -----------------------------------------------------------------
@@ -121,11 +145,12 @@ def check_references(conn: psycopg.Connection, filters: SavedFilters) -> None:
     every zone exists and has a map shape (the rule the planner's
     allocation_result_zone trigger uses), and every borough has a shaped zone
     (the list GET /zones/boroughs offers)."""
-    if filters.zoneIds:
+    zones = [*(filters.zoneIds or []), *([filters.originZoneId] if filters.originZoneId else [])]
+    if zones:
         found = {z for (z,) in conn.execute(
             "SELECT location_id FROM taxi_zone WHERE location_id = ANY(%s) AND geom IS NOT NULL",
-            (filters.zoneIds,))}
-        if unknown := sorted(set(filters.zoneIds) - found):
+            (zones,))}
+        if unknown := sorted(set(zones) - found):
             raise ViewError(f"unknown zone id(s) or zones without a map shape: "
                             f"{', '.join(map(str, unknown))}")
     if filters.boroughs:
@@ -141,9 +166,10 @@ def check_references(conn: psycopg.Connection, filters: SavedFilters) -> None:
 
 # --- CRUD --------------------------------------------------------------------
 
-def list_views(coll: Collection, owner_user_id: int) -> list[dict]:
-    """The owner's saved views, newest first."""
-    return [_out(d) for d in coll.find({"ownerUserId": owner_user_id}).sort("updatedAt", DESCENDING)]
+def list_views(coll: Collection, owner_user_id: int, page: str | None = None) -> list[dict]:
+    """The owner's saved views, newest first; only one page's if `page` is given."""
+    query = {"ownerUserId": owner_user_id, **({"page": page} if page else {})}
+    return [_out(d) for d in coll.find(query).sort("updatedAt", DESCENDING)]
 
 
 def get_view(coll: Collection, owner_user_id: int, view_id: str) -> dict:
@@ -179,17 +205,37 @@ def create_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int,
     return _out(doc)
 
 
-def rename_view(coll: Collection, owner_user_id: int, view_id: str, name: str) -> dict:
-    name = name.strip()
-    with _write_errors(name):
+def _set(coll: Collection, owner_user_id: int, view_id: str, fields: dict) -> dict:
+    with _write_errors(fields.get("name", "")):
         doc = coll.find_one_and_update(
             {"_id": _oid(view_id), "ownerUserId": owner_user_id},
-            {"$set": {"name": name, "updatedAt": _now()}},
+            {"$set": {**fields, "updatedAt": _now()}},
             return_document=ReturnDocument.AFTER,
         )
     if doc is None:
         raise ViewNotFound("view not found")
     return _out(doc)
+
+
+def rename_view(coll: Collection, owner_user_id: int, view_id: str, name: str) -> dict:
+    return _set(coll, owner_user_id, view_id, {"name": name.strip()})
+
+
+def update_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int, view_id: str,
+                change: ViewUpdate) -> dict:
+    """Rename a view, or store the page's current filters or widgets in it."""
+    fields = {}
+    if change.filters is not None:
+        page = get_view(coll, owner_user_id, view_id).get("page")
+        if page and (problem := page_problem(page, change.filters)):
+            raise ViewError(problem)
+        check_references(conn, change.filters)
+        fields["filters"] = change.filters.model_dump(exclude_none=True)
+    if change.widgets is not None:
+        fields["widgets"] = change.widgets
+    if change.name is not None:
+        fields["name"] = change.name
+    return _set(coll, owner_user_id, view_id, fields)
 
 
 def delete_view(coll: Collection, owner_user_id: int, view_id: str) -> None:

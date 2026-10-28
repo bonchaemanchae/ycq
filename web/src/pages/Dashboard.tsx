@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Borough } from "../api";
+import SavedViews, { type SavedView } from "../components/SavedViews";
 import ZoneMap from "../components/ZoneMap";
 import ActivityChart from "./dashboard/ActivityChart";
 import DashboardFilters from "./dashboard/Filters";
@@ -10,7 +11,7 @@ import WeekdayChart from "./dashboard/WeekdayChart";
 import ZoneCompare from "./dashboard/ZoneCompare";
 import ZoneTable from "./dashboard/ZoneTable";
 import {
-  METRICS, WEEKDAYS, count, hourLabel, toQuery,
+  METRICS, WEEKDAYS, count, describeSaved, fromSaved, hourLabel, toQuery, toSaved,
   type Compare, type Context, type Filters, type Series, type Summary, type Weekdays,
 } from "./dashboard/types";
 import { useApi } from "./flows/useApi";
@@ -59,6 +60,19 @@ export default function Dashboard() {
   const toggleCompare = useCallback((id: number) => setCompareIds((ids) =>
     ids.includes(id) ? ids.filter((x) => x !== id) : ids.length >= 3 ? ids : [...ids, id]), []);
 
+  // A saved view holds the filters, plus the compared zones and the chart's
+  // hour or day choice as widgets.
+  const viewState = useMemo(() => filters && {
+    filters: toSaved(filters),
+    widgets: { compareZoneIds: compareIds, bucket },
+  }, [filters, compareIds, bucket]);
+  const openView = useCallback((v: SavedView) => {
+    if (!bounds) return;
+    setFilters(fromSaved(v.filters, bounds));
+    setCompareIds((v.widgets?.compareZoneIds as number[]) ?? []);
+    setBucket((v.widgets?.bucket as "hour" | "day") ?? "day");
+  }, [bounds]);
+
   const metric = filters?.metric ?? "pickups";
   const values = useMemo(
     () => Object.fromEntries((summary.data?.zones ?? []).map((z) => [z.zoneId, z[metric]])),
@@ -87,6 +101,9 @@ export default function Dashboard() {
       {filters && (
         <DashboardFilters filters={filters} onChange={setFilters} bounds={bounds}
                           boroughs={(boroughs.data ?? []).map((b) => b.name)} />
+      )}
+      {filters && (
+        <SavedViews page="dashboard" current={viewState} describe={describeSaved} onOpen={openView} />
       )}
       {summary.error && <div className="alert error"><span>{summary.error}</span></div>}
 

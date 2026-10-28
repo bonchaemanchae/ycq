@@ -1,13 +1,15 @@
-"""The activity filters, defined once.
+"""The pages' filters, defined once.
 
-The Activity Dashboard reads them from query parameters (api/dashboard.py),
-a saved view stores them (api/saved_views.py), and MongoDB's validator for
+The Activity Dashboard reads its filters from query parameters
+(api/dashboard.py) and the Flow Explorer its choices (api/flows.py); a saved
+view stores either page's (api/saved_views.py), and MongoDB's validator for
 saved_analysis_views checks them (etl/load_mongo.py builds it with
 mongo_schema below). One definition means a saved view always holds filters
-the dashboard accepts.
+its page accepts.
 
-    ActivityFilters   query parameters: "8" becomes 8, the metric defaults to pickups
-    SavedFilters      a saved view's JSON: types must already be right, nothing defaults
+    ActivityFilters   the dashboard's query parameters: "8" becomes 8, the metric defaults to pickups
+    SavedFilters      a saved view's JSON: either page's fields, types must already be right
+    PAGE_FIELDS       which of SavedFilters' fields each page uses
     mongo_schema(SavedFilters)   the same rules as a MongoDB $jsonSchema
 
 Imports nothing but Pydantic, so the ETL scripts can use it too.
@@ -23,6 +25,10 @@ Weekday = Annotated[int, Field(ge=1, le=7)]
 ZoneId = Annotated[int, Field(ge=1, le=263)]       # 264 and 265 have no map shape
 BoroughName = Annotated[str, Field(min_length=1, max_length=50)]
 Metric = Literal["pickups", "dropoffs", "imbalance"]
+Month = Annotated[str, Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")]
+DayType = Literal["weekday", "weekend"]
+# Local pickup hour: night 0-5, am_peak 6-9, midday 10-15, pm_peak 16-19, evening 20-23
+TimeBucket = Literal["night", "am_peak", "midday", "pm_peak", "evening"]
 
 
 class ActivityFilters(BaseModel):
@@ -55,12 +61,33 @@ class ActivityFilters(BaseModel):
 
 
 class SavedFilters(ActivityFilters):
-    """The same filters in a saved view. Strict, because the JSON is stored as
-    sent: without it "8" and true would become 8 and 1. The metric is only
+    """The filters of a saved view: the dashboard's, or the Flow Explorer's
+    four choices (PAGE_FIELDS says which). Strict, because the JSON is stored
+    as sent: without it "8" and true would become 8 and 1. The metric is only
     stored if it was chosen."""
     model_config = ConfigDict(extra="forbid", strict=True)
 
     metric: Metric | None = None
+    originZoneId: ZoneId | None = None
+    month: Month | None = None
+    dayType: DayType | None = None
+    timeBucket: TimeBucket | None = None
+
+
+FLOW_FIELDS = {"originZoneId", "month", "dayType", "timeBucket"}
+PAGE_FIELDS = {"dashboard": set(ActivityFilters.model_fields), "flows": FLOW_FIELDS}
+
+
+def page_problem(page: str, filters: SavedFilters) -> str | None:
+    """Why these filters can't be saved for this page, or None. A view must
+    reopen its page as saved: no other page's fields, and a Flow Explorer
+    view needs all four of its choices."""
+    used = {f for f, v in filters if v is not None}
+    if wrong := sorted(used - PAGE_FIELDS[page]):
+        return f"{', '.join(wrong)} can't be saved on the {page} page"
+    if page == "flows" and (missing := sorted(FLOW_FIELDS - used)):
+        return f"a Flow Explorer view needs {', '.join(missing)}"
+    return None
 
 
 # --- as a MongoDB validator ------------------------------------------------------

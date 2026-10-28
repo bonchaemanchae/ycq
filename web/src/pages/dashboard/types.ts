@@ -153,3 +153,47 @@ export const minutes = (sec: number | null | undefined) =>
 export const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
 export const dayLabel = (d: string) =>
   new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+
+// --- saved views (components/SavedViews.tsx) ---------------------------------------
+// A saved view keeps only the filters that are set, under the same names
+// (api/filters.py); empty lists and unset hours are left out.
+
+export function toSaved(f: Filters): Record<string, unknown> {
+  return {
+    dateFrom: f.dateFrom,
+    dateTo: f.dateTo,
+    ...(f.weekdays.length ? { weekdays: f.weekdays } : {}),
+    ...(f.hourFrom !== null ? { hourFrom: f.hourFrom } : {}),
+    ...(f.hourTo !== null ? { hourTo: f.hourTo } : {}),
+    ...(f.boroughs.length ? { boroughs: f.boroughs } : {}),
+    metric: f.metric,
+  };
+}
+
+// Back to the page's filters. A missing date means the loaded data's first or
+// last day.
+export function fromSaved(s: Record<string, unknown>, bounds: { dateFrom: string; dateTo: string }): Filters {
+  return {
+    dateFrom: (s.dateFrom as string) ?? bounds.dateFrom,
+    dateTo: (s.dateTo as string) ?? bounds.dateTo,
+    weekdays: (s.weekdays as number[]) ?? [],
+    hourFrom: (s.hourFrom as number) ?? null,
+    hourTo: (s.hourTo as number) ?? null,
+    boroughs: (s.boroughs as string[]) ?? [],
+    metric: (s.metric as Metric) ?? "pickups",
+  };
+}
+
+// One line describing a saved view, e.g. "1 Mar to 31 Mar · Mon Tue · 07:00 to 09:59 · Manhattan · Pickups".
+export function describeSaved(s: Record<string, unknown>): string {
+  const f = fromSaved(s, { dateFrom: "start", dateTo: "end" });
+  const date = (d: string) => (d === "start" || d === "end" ? d : dayLabel(d));
+  return [
+    `${date(f.dateFrom)} to ${date(f.dateTo)}`,
+    f.weekdays.length ? f.weekdays.map((d) => WEEKDAYS[d - 1]).join(" ") : "every day",
+    f.hourFrom !== null || f.hourTo !== null
+      ? `${hourLabel(f.hourFrom ?? 0)} to ${String(f.hourTo ?? 23).padStart(2, "0")}:59` : "all hours",
+    f.boroughs.length ? f.boroughs.join(", ") : "all boroughs",
+    METRICS.find((m) => m.value === f.metric)!.label,
+  ].join(" · ");
+}

@@ -168,7 +168,7 @@ def test_a_view_being_saved_when_deletion_starts_is_deleted_too(db, views, victi
                 saved_views.create_view(
                     SimpleNamespace(insert_one=slow_insert), conn, user_id,
                     saved_views.ViewCreate.model_validate(
-                        {"name": "Saved mid-deletion", "page": "flows", "filters": {}}))
+                        {"name": "Saved mid-deletion", "page": "dashboard", "filters": {}}))
         except Exception as e:
             errors.append(e)
 
