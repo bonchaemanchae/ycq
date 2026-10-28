@@ -6,12 +6,20 @@ Creates the collections (with $jsonSchema validators and indexes) if needed,
 deletes that month's documents, then inserts them again from
 zone_hour_observation and od_summary. Time-series collections don't enforce
 unique keys, so the loader always deletes before inserting.
+
+Besides one document per zone and hour, it stores two pre-summed copies of
+the same numbers for the Activity Dashboard: one document per zone and day,
+and one per borough and hour. They have the same field names, so the
+dashboard's pipelines run on whichever is smallest for the question
+(api/dashboard.py) instead of adding up every hourly document each time.
 """
 import argparse
 import os
 import time
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import timezone
+from typing import Callable
 
 from pymongo import ASCENDING, DESCENDING
 from pymongo.errors import CollectionInvalid
@@ -19,6 +27,8 @@ from pymongo.errors import CollectionInvalid
 from common import mongo_db, next_month, parse_month, pg_connect
 
 HOURLY = "zone_activity_timeseries"
+DAILY = "zone_activity_daily"
+BOROUGH_HOURLY = "borough_activity_hourly"
 OD = "origin_destination_snapshots"
 VIEWS = "saved_analysis_views"
 TOP_N = 10
@@ -26,36 +36,73 @@ TOP_N = 10
 NUM = ["double", "int", "long", "decimal"]
 NUM_OR_NULL = NUM + ["null"]
 
+LOCAL_DATE = {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"}
+LOCAL_HOUR = {"bsonType": "int", "minimum": 0, "maximum": 23}
+ISO_DAY_OF_WEEK = {"bsonType": "int", "minimum": 1, "maximum": 7}
+ZONE_ID = {"bsonType": "int", "minimum": 1, "maximum": 265}
+
+# The numbers in every zone activity document, hourly or pre-summed
+# (hourly_fields below).
+ACTIVITY_REQUIRED = ["pickups", "dropoffs", "imbalance", "fareSum", "fareTripCount"]
+ACTIVITY_NUMBERS = {
+    "pickups": {"bsonType": "int", "minimum": 0},
+    "dropoffs": {"bsonType": "int", "minimum": 0},
+    "imbalance": {"bsonType": "int"},
+    "fareSum": {"bsonType": NUM, "minimum": 0},
+    "fareTripCount": {"bsonType": "int", "minimum": 0},
+    "averageFare": {"bsonType": NUM_OR_NULL},
+    "distanceSum": {"bsonType": NUM},
+    "distanceTripCount": {"bsonType": "int", "minimum": 0},
+    "averageDistance": {"bsonType": NUM_OR_NULL},
+    "durationSumSec": {"bsonType": NUM},
+    "durationTripCount": {"bsonType": "int", "minimum": 0},
+    "averageDurationSec": {"bsonType": NUM_OR_NULL},
+}
+
+
+def meta_schema(**properties) -> dict:
+    return {"bsonType": "object", "required": list(properties), "properties": properties}
+
+
 HOURLY_SCHEMA = {
     "$jsonSchema": {
         "bsonType": "object",
-        "required": ["timestamp", "meta", "localDate", "localHour", "isoDayOfWeek",
-                     "pickups", "dropoffs", "imbalance", "fareSum", "fareTripCount"],
+        "required": ["timestamp", "meta", "localDate", "localHour", "isoDayOfWeek", *ACTIVITY_REQUIRED],
         "properties": {
             "timestamp": {"bsonType": "date"},
-            "meta": {
-                "bsonType": "object",
-                "required": ["zoneId", "borough"],
-                "properties": {
-                    "zoneId": {"bsonType": "int", "minimum": 1, "maximum": 265},
-                    "borough": {"bsonType": "string"},
-                },
-            },
-            "localDate": {"bsonType": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-            "localHour": {"bsonType": "int", "minimum": 0, "maximum": 23},
-            "isoDayOfWeek": {"bsonType": "int", "minimum": 1, "maximum": 7},
-            "pickups": {"bsonType": "int", "minimum": 0},
-            "dropoffs": {"bsonType": "int", "minimum": 0},
-            "imbalance": {"bsonType": "int"},
-            "fareSum": {"bsonType": NUM, "minimum": 0},
-            "fareTripCount": {"bsonType": "int", "minimum": 0},
-            "averageFare": {"bsonType": NUM_OR_NULL},
-            "distanceSum": {"bsonType": NUM},
-            "distanceTripCount": {"bsonType": "int", "minimum": 0},
-            "averageDistance": {"bsonType": NUM_OR_NULL},
-            "durationSumSec": {"bsonType": NUM},
-            "durationTripCount": {"bsonType": "int", "minimum": 0},
-            "averageDurationSec": {"bsonType": NUM_OR_NULL},
+            "meta": meta_schema(zoneId=ZONE_ID, borough={"bsonType": "string"}),
+            "localDate": LOCAL_DATE,
+            "localHour": LOCAL_HOUR,
+            "isoDayOfWeek": ISO_DAY_OF_WEEK,
+            **ACTIVITY_NUMBERS,
+        },
+    }
+}
+
+DAILY_SCHEMA = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["meta", "localDate", "isoDayOfWeek", *ACTIVITY_REQUIRED],
+        "properties": {
+            "meta": meta_schema(zoneId=ZONE_ID, borough={"bsonType": "string"}),
+            "localDate": LOCAL_DATE,
+            "isoDayOfWeek": ISO_DAY_OF_WEEK,
+            **ACTIVITY_NUMBERS,
+        },
+    }
+}
+
+BOROUGH_HOURLY_SCHEMA = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["timestamp", "meta", "localDate", "localHour", "isoDayOfWeek", *ACTIVITY_REQUIRED],
+        "properties": {
+            "timestamp": {"bsonType": "date"},
+            "meta": meta_schema(borough={"bsonType": "string"}),
+            "localDate": LOCAL_DATE,
+            "localHour": LOCAL_HOUR,
+            "isoDayOfWeek": ISO_DAY_OF_WEEK,
+            **ACTIVITY_NUMBERS,
         },
     }
 }
@@ -140,11 +187,18 @@ def ensure_collections(db) -> None:
     # statistics (and its PostgreSQL vs MongoDB comparison) filter on these.
     db[HOURLY].create_index([("isoDayOfWeek", ASCENDING), ("localHour", ASCENDING)])
 
-    for name, schema in ((OD, OD_SCHEMA), (VIEWS, VIEWS_SCHEMA)):
+    for name, schema in ((OD, OD_SCHEMA), (VIEWS, VIEWS_SCHEMA),
+                         (DAILY, DAILY_SCHEMA), (BOROUGH_HOURLY, BOROUGH_HOURLY_SCHEMA)):
         try:
             db.create_collection(name, validator=schema, validationLevel="strict")
         except CollectionInvalid:
             db.command("collMod", name, validator=schema, validationLevel="strict")
+    # Ordinary collections, unlike HOURLY, so they can have unique keys and
+    # validators. Dates are the dashboard's main filter.
+    db[DAILY].create_index([("meta.zoneId", ASCENDING), ("localDate", ASCENDING)], unique=True)
+    db[DAILY].create_index([("localDate", ASCENDING)])
+    db[BOROUGH_HOURLY].create_index([("meta.borough", ASCENDING), ("timestamp", ASCENDING)], unique=True)
+    db[BOROUGH_HOURLY].create_index([("localDate", ASCENDING), ("localHour", ASCENDING)])
     db[OD].create_index(
         [("originZoneId", ASCENDING), ("month", ASCENDING), ("dayType", ASCENDING), ("timeBucket", ASCENDING)],
         unique=True,
@@ -250,6 +304,77 @@ def load_hourly(conn, db, start, end) -> int:
     return inserted
 
 
+# --- pre-summed copies for the dashboard ---------------------------------------
+
+# The eight sums hourly_fields takes, added up over a group of hours.
+SUMS_SQL = """sum(h.pickups)::int, sum(h.dropoffs)::int, sum(h.fare_sum), sum(h.fare_trip_count)::int,
+              sum(h.distance_sum), sum(h.distance_trip_count)::int,
+              sum(h.duration_sum_s), sum(h.duration_trip_count)::int"""
+
+
+@dataclass(frozen=True)
+class Summary:
+    """One pre-summed collection: the PostgreSQL query for a month (start and
+    end as parameters), how a result row becomes a document, and the fields
+    that identify a document (its unique index). reconcile.py checks each
+    collection against the same query."""
+    collection: str
+    sql: str
+    document: Callable[..., dict]
+    key: Callable[[dict], tuple]
+
+
+SUMMARIES = [
+    Summary(
+        DAILY,
+        f"""SELECT h.location_id, b.name, h.local_date, h.iso_dow, {SUMS_SQL}
+            FROM zone_hour_observation h
+            JOIN taxi_zone z USING (location_id)
+            JOIN borough b USING (borough_id)
+            WHERE h.obs_hour >= %s AND h.obs_hour < %s
+            GROUP BY h.location_id, b.name, h.local_date, h.iso_dow""",
+        lambda zone, borough, day, dow, *sums: {
+            "meta": {"zoneId": zone, "borough": borough},
+            "localDate": day.isoformat(),
+            "isoDayOfWeek": dow,
+            **hourly_fields(*sums),
+        },
+        lambda doc: (doc["meta"]["zoneId"], doc["localDate"]),
+    ),
+    Summary(
+        BOROUGH_HOURLY,
+        f"""SELECT b.name, h.obs_hour_utc, h.local_date, h.local_hour, h.iso_dow, {SUMS_SQL}
+            FROM zone_hour_observation h
+            JOIN taxi_zone z USING (location_id)
+            JOIN borough b USING (borough_id)
+            WHERE h.obs_hour >= %s AND h.obs_hour < %s
+            GROUP BY b.name, h.obs_hour_utc, h.local_date, h.local_hour, h.iso_dow""",
+        lambda borough, ts, day, hour, dow, *sums: {
+            "timestamp": ts.astimezone(timezone.utc),
+            "meta": {"borough": borough},
+            "localDate": day.isoformat(),
+            "localHour": hour,
+            "isoDayOfWeek": dow,
+            **hourly_fields(*sums),
+        },
+        lambda doc: (doc["meta"]["borough"], doc["timestamp"]),
+    ),
+]
+
+
+def load_summaries(conn, db, start, end) -> None:
+    """Replace one month in each pre-summed collection. The validators reject
+    a malformed document, which stops the load."""
+    month_filter = {"localDate": {"$gte": start.isoformat(), "$lt": end.isoformat()}}
+    for s in SUMMARIES:
+        coll = db[s.collection]
+        deleted = coll.delete_many(month_filter).deleted_count
+        docs = [s.document(*row) for row in conn.execute(s.sql, (start, end))]
+        if docs:
+            coll.insert_many(docs, ordered=False)
+        print(f"{s.collection}: deleted {deleted:,}, inserted {len(docs):,}")
+
+
 def load_od(conn, db, start) -> int:
     coll = db[OD]
     month = f"{start:%Y-%m}"
@@ -316,6 +441,7 @@ def main() -> None:
     ensure_collections(db)
     with pg_connect() as conn:
         load_hourly(conn, db, start, end)
+        load_summaries(conn, db, start, end)
         load_od(conn, db, start)
     print(f"done ({time.perf_counter() - t0:.1f}s)")
 

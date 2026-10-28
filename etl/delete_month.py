@@ -20,7 +20,7 @@ import sys
 
 from build_aggregates import refresh
 from common import mongo_db, next_month, parse_month, pg_connect
-from load_mongo import HOURLY, OD
+from load_mongo import HOURLY, OD, SUMMARIES
 
 
 def main() -> int:
@@ -69,11 +69,12 @@ def main() -> int:
         ).fetchone() is not None
 
     db = mongo_db()
-    hourly = db[HOURLY].delete_many(
-        {"localDate": {"$gte": start.isoformat(), "$lt": end.isoformat()}}
-    ).deleted_count
+    month_filter = {"localDate": {"$gte": start.isoformat(), "$lt": end.isoformat()}}
+    hourly = db[HOURLY].delete_many(month_filter).deleted_count
+    summed = sum(db[s.collection].delete_many(month_filter).deleted_count for s in SUMMARIES)
     od = db[OD].delete_many({"month": f"{start:%Y-%m}"}).deleted_count
-    print(f"{args.month} MongoDB: {hourly:,} hourly documents, {od:,} origin-destination documents")
+    print(f"{args.month} MongoDB: {hourly:,} hourly documents, {summed:,} pre-summed documents, "
+          f"{od:,} origin-destination documents")
 
     print(f"\n{args.month} removed. Import it again with the loader (docker compose up -d) "
           f"or etl/import_month.py.")

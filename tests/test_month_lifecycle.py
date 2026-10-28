@@ -40,6 +40,8 @@ def other_months(db, mongo):
         db.execute("SELECT count(*), sum(trips) FROM od_summary").fetchone(),
         db.execute("SELECT count(*) FROM rejected_trip").fetchone()[0],
         mongo["zone_activity_timeseries"].count_documents({}),
+        mongo["zone_activity_daily"].count_documents({}),
+        mongo["borough_activity_hourly"].count_documents({}),
         mongo["origin_destination_snapshots"].count_documents({}),
     )
 
@@ -52,6 +54,9 @@ def april_left(db, mongo):
             "SELECT count(*) FROM zone_hour_observation WHERE local_date >= '2026-04-01'").fetchone()[0],
         "od": db.execute("SELECT count(*) FROM od_summary WHERE month = '2026-04-01'").fetchone()[0],
         "mongo_hourly": mongo["zone_activity_timeseries"].count_documents({"localDate": {"$gte": "2026-04-01"}}),
+        "mongo_daily": mongo["zone_activity_daily"].count_documents({"localDate": {"$gte": "2026-04-01"}}),
+        "mongo_borough_hourly": mongo["borough_activity_hourly"].count_documents(
+            {"localDate": {"$gte": "2026-04-01"}}),
         "mongo_od": mongo["origin_destination_snapshots"].count_documents({"month": "2026-04"}),
     }
 

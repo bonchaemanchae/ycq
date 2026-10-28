@@ -7,6 +7,10 @@ every number in every zone-hour document (pickups, drop-offs, imbalance, the
 fare, distance and duration sums and counts, and the three averages), each
 recomputed from zone_hour_observation.
 
+Pre-summed activity (one document per zone and day, and per borough and
+hour): the same numbers, each document recomputed with load_mongo.py's
+query for it. Documents missing on either side count as mismatches.
+
 Origin-destination: every slice's total trips and destination count, the
 top destinations in order, and each destination's trips, share and averages,
 recomputed from od_summary.
@@ -20,7 +24,7 @@ import sys
 from psycopg.types.json import Jsonb
 
 from common import mongo_db, next_month, parse_month, pg_connect
-from load_mongo import HOURLY, OD, TOP_N, destination_fields, hourly_fields
+from load_mongo import HOURLY, OD, SUMMARIES, TOP_N, destination_fields, hourly_fields
 
 SAMPLE = 20   # mismatches kept in details
 HOURLY_FIELDS = list(hourly_fields(0, 0, 0, 0, 0, 0, 0, 0))
@@ -35,6 +39,25 @@ def same(expected, actual) -> bool:
 
 def differing(expected: dict, actual: dict) -> list[str]:
     return [k for k, v in expected.items() if not same(v, actual.get(k))]
+
+
+def check_summary(conn, db, s, start, end, month_filter) -> dict:
+    """One pre-summed collection for a month against PostgreSQL: how many
+    documents each side has, and which differ (sample kept)."""
+    expected = {s.key(doc): doc for doc in (s.document(*row) for row in conn.execute(s.sql, (start, end)))}
+    actual = {s.key(doc): doc for doc in db[s.collection].find(month_filter, {"_id": 0})}
+    diffs = []
+    for key in expected.keys() | actual.keys():
+        e, a = expected.get(key), actual.get(key)
+        if e is None or a is None:
+            problem = ["missing in MongoDB"] if a is None else ["only in MongoDB"]
+        else:
+            problem = differing({f: e[f] for f in HOURLY_FIELDS}, a)
+        if problem:
+            diffs.append({"key": [str(k) for k in key], "fields": problem})
+    diffs.sort(key=lambda d: d["key"])
+    return {"postgres_docs": len(expected), "mongo_docs": len(actual),
+            "mismatches": len(diffs), "mismatch_sample": diffs[:SAMPLE]}
 
 
 def main() -> int:
@@ -96,6 +119,10 @@ def main() -> int:
         mongo_pickups = totals[0]["pickups"] if totals else 0
         mongo_dropoffs = totals[0]["dropoffs"] if totals else 0
 
+        # --- pre-summed activity ----------------------------------------------
+        summaries = {s.collection: check_summary(conn, db, s, start, end, month_filter)
+                     for s in SUMMARIES}
+
         # --- origin-destination ---------------------------------------------
         month = f"{start:%Y-%m}"
         pg_od = {}
@@ -140,6 +167,7 @@ def main() -> int:
 
         passed = (
             not zone_hour_diffs and not od_diffs and mongo_dupes == 0
+            and all(c["mismatches"] == 0 for c in summaries.values())
             and len(pg_hours) == mongo_doc_count
             and pg_pickups == mongo_pickups and pg_dropoffs == mongo_dropoffs
         )
@@ -150,6 +178,7 @@ def main() -> int:
             "fields_checked": {"hourly": HOURLY_FIELDS,
                                "destinations": ["rank", *destination_fields(1, 1, 0, 0, 0, 0, 0, 0)]},
             "zone_hour_mismatch_sample": zone_hour_diffs[:SAMPLE],
+            "summaries": summaries,
             "od_mismatch_sample": [{**d, "slice": list(d["slice"])} for d in od_diffs[:SAMPLE]],
         }
         conn.execute(
@@ -171,6 +200,9 @@ def main() -> int:
     print(f"  dropoffs         postgres {pg_dropoffs:>10,}   mongo {mongo_dropoffs:>10,}")
     print(f"  zone-hour mismatches {len(zone_hour_diffs):,} "
           f"(checked {len(HOURLY_FIELDS)} fields per document)")
+    for name, c in summaries.items():
+        print(f"  {name:<24} postgres {c['postgres_docs']:>8,}   mongo {c['mongo_docs']:>8,}   "
+              f"mismatches {c['mismatches']:,}")
     print(f"  od slices        postgres {len(pg_od):>10,}   mongo {len(seen):>10,}   mismatches {len(od_diffs):,}")
     for d in zone_hour_diffs[:5]:
         print(f"    {d}")

@@ -16,7 +16,7 @@ import sys
 import time
 
 from common import ROOT, mongo_db, next_month, parse_month, pg_connect
-from load_mongo import HOURLY, ensure_app_user, ensure_collections
+from load_mongo import HOURLY, SUMMARIES, ensure_app_user, ensure_collections
 
 DEFAULT_MONTHS = ["2026-01", "2026-02", "2026-03"]
 
@@ -55,9 +55,12 @@ def month_state(month: str) -> tuple[bool, bool, bool]:
             "SELECT 1 FROM zone_hour_observation WHERE obs_hour >= %s AND obs_hour < %s LIMIT 1",
             (start, end),
         ).fetchone() is not None
-    in_mongo = mongo_db()[HOURLY].count_documents(
-        {"localDate": {"$gte": start.isoformat(), "$lt": end.isoformat()}}, limit=1
-    ) > 0
+    # Every activity collection, so a database loaded before one was added
+    # gets it on the next start.
+    db = mongo_db()
+    month_filter = {"localDate": {"$gte": start.isoformat(), "$lt": end.isoformat()}}
+    in_mongo = all(db[name].count_documents(month_filter, limit=1) > 0
+                   for name in (HOURLY, *(s.collection for s in SUMMARIES)))
     return imported, summarised, in_mongo
 
 
