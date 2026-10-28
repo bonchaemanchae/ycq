@@ -25,8 +25,9 @@ cd ycq
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 ```
 
-Open `.env`, replace every `change-me` value and save: the two database
-passwords, `JWT_SECRET` (a random value of at least 32 characters; the API
+Open `.env`, replace every `change-me` value and save: the database
+passwords (including the API's own logins, `POSTGRES_APP_PASSWORD` and
+`MONGO_APP_PASSWORD`), `JWT_SECRET` (a random value of at least 32 characters; the API
 refuses to start without one) and the passwords of the three default accounts.
 Then:
 
@@ -63,7 +64,7 @@ All `docker compose` commands must be run from the folder that contains
 | `postgres` | PostgreSQL 16 + PostGIS | `localhost:5432` |
 | `mongo` | MongoDB 8.0 | `localhost:27017` |
 | `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
-| `api` | FastAPI backend. Logs in to MongoDB as `MONGO_APP_USER`, which the loader creates with read/write on the `ycq` database only (not root) | http://localhost:8000/docs |
+| `api` | FastAPI backend. Logs in with its own limited accounts, which the loader creates: PostgreSQL as `POSTGRES_APP_USER` (reads everything, writes only users and plans; `sql/015`), MongoDB as `MONGO_APP_USER` (read/write on the `ycq` database only). Neither is the owner or root | http://localhost:8000/docs |
 | `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
 
 The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
@@ -240,6 +241,13 @@ Saved allocation plans are checked by the database itself, not only by the API
   checked on every request, so changes apply immediately.
 - **Roles:** analysts use every page except Administration; admins use all of
   them.
+- **Database roles:** the API never connects as the database owner. Its
+  PostgreSQL login is a member of `ycq_write` (`sql/015`), which can read
+  every table but only write `app_user`, `app_user_role` and the four plan
+  tables: it can't create, alter or drop anything, or touch trips, imports
+  and summaries. `ycq_read` is the same without the writes. The loader, the
+  tests and `psql` use the owner (`POSTGRES_USER`). `tests/test_db_roles.py`
+  runs the whole app as such a role and checks what it is refused.
 - **Deleting a user** (Administration → Users) also deletes their saved plans
   (PostgreSQL) and saved views (MongoDB). The order, and why a failure part way
   can simply be retried, is explained at the top of `api/users.py`. A deleted

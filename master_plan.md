@@ -997,7 +997,9 @@ implementation task. See [application navigation](web/src/App.tsx).
 
 ### 10.3 Decisions and report requirements
 
-- **Database roles:** dedicated PostgreSQL read/write roles are a proposed
+- **Database roles:** done in `sql/015` (`ycq_read`, `ycq_write`; the API
+  logs in as a member of `ycq_write`, see README "Database roles"). The
+  original note follows: dedicated PostgreSQL read/write roles are a proposed
   security design, not installed by an existing migration. The original target
   names are `ycq_read` (SELECT only) and `ycq_write` (write-capable API role).
   The original instruction to execute `sql/013` cannot implement those roles:

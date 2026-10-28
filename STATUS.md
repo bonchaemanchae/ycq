@@ -69,10 +69,14 @@ token login, role checks and input validation."*
   Administration page (review §3.2)
 - [x] Admins add analyst or admin accounts in the same Users section
   (`POST /admin/users`); the three default emails stay with `.env`
-- [ ] PostgreSQL read/write roles, if you build them. **Use `sql/015_…`:**
-  `012` to `014` are now taken. Remember the admin rebuild (review §3.1): the
-  rebuild writes `reconciliation_run` and the summaries, so either give admin
-  routes a role that can do that, or keep rebuilds as scripts
+- [x] PostgreSQL read/write roles (Anna, `sql/015`): `ycq_read` (SELECT on
+  every table) and `ycq_write` (plus writes to users, roles and plans). The
+  API logs in as `POSTGRES_APP_USER` (default `ycq_app`), a member of
+  `ycq_write` that the loader creates, instead of the superuser owner.
+  Rebuilds stay in the loader scripts, which keep the owner (review §3.1).
+  `tests/test_db_roles.py`: the whole app works as that role, and DDL,
+  TRUNCATE and writes to trips, imports and lookups are refused. **Next SQL
+  file: `016`**
 
 **Data ready to use:** tables `app_user` (case-insensitive unique email),
 `app_role` (`analyst`, `admin`) and `app_user_role` (many-to-many).
