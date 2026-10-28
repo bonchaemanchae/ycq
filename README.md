@@ -157,8 +157,8 @@ be added to `PAGES` in `web/src/App.tsx` to get a tab.
 The landing page. Every part of it follows the same filters: a date range,
 days of the week, a range of hours (22 to 2 wraps past midnight), boroughs,
 and whether the map shows pickups, drop-offs or the imbalance between them.
-It reads MongoDB's `zone_activity_timeseries` through these routes (each takes
-the filters as query parameters, named like a saved view's filters):
+It reads MongoDB through these routes (each takes the filters as query
+parameters, named like a saved view's filters):
 
 | Route | What it returns | MongoDB features |
 |---|---|---|
@@ -171,6 +171,23 @@ the filters as query parameters, named like a saved view's filters):
 Averages are total sums divided by total counts, so they match PostgreSQL for
 the same rows (`tests/test_dashboard.py` checks every route against
 `zone_hour_observation`).
+
+Each question reads the smallest of three collections that holds what it
+needs (`source()` in `api/dashboard.py`). All three are built from
+`zone_hour_observation` with the same field names, so the pipelines are the
+same on each:
+
+| Collection | One document per | Documents (3 months) | Used for |
+|---|---|---|---|
+| `zone_activity_timeseries` | zone and hour (time series) | 567,817 | the summary when hours are filtered, any question about chosen zones, comparing zones |
+| `zone_activity_daily` | zone and day | 23,670 | the summary (map, totals, zone table) |
+| `borough_activity_hourly` | borough and hour | 12,954 | activity over time, weekdays |
+
+Over three months this takes each question from about 2 seconds to under 50
+ms, with the same answer. Every response says which collection answered
+(`source`) and how long it took (`queryMs`), and the page shows it under each
+chart. The loader builds the two pre-summed collections with the others, and
+reconciliation checks every field of every document against PostgreSQL.
 
 ### Rules the database enforces on saved plans
 
@@ -351,8 +368,11 @@ filtered and sorted from `od_summary` in PostgreSQL against one embedded
 document in `origin_destination_snapshots`. It records a cold run, the median
 and 95th percentile of the timed runs, data and index size, load time and each
 query plan, and saves them to `benchmark_run` only if every store gave the same
-answers. `--explain-summary` prints `EXPLAIN ANALYZE` of one month's summary
-build and changes nothing.
+answers. Questions 6 and 7 are the Activity Dashboard's heaviest over all three
+months (every zone's totals, and pickups by weekday and hour), on the app's
+real stores: `zone_hour_observation`, the hourly time series, and the
+pre-summed collection the dashboard reads. `--explain-summary` prints
+`EXPLAIN ANALYZE` of one month's summary build and changes nothing.
 
 ## Tests
 

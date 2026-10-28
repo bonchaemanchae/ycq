@@ -2,11 +2,12 @@ import { STORE_LABEL, mb, ms, when, type BenchmarkResult, type BenchmarkRun } fr
 
 type Store = BenchmarkResult["store"];
 
-const STORES: Store[] = ["postgres", "mongo_collection", "mongo_timeseries"];
+const STORES: Store[] = ["postgres", "mongo_collection", "mongo_timeseries", "mongo_summary"];
 
 const DATA_LABEL: Record<BenchmarkResult["data"], string> = {
   hourly: "Hourly zone summaries (Q1–Q4)",
   destinations: "Destination lists (Q5)",
+  dashboard: "Activity Dashboard (Q6–Q7)",
 };
 
 const QUESTION_NOTE: Record<BenchmarkResult["data"], string> = {
@@ -14,9 +15,20 @@ const QUESTION_NOTE: Record<BenchmarkResult["data"], string> = {
   destinations:
     "PostgreSQL sorts every destination of the zone and keeps 10; MongoDB reads one document " +
     "that already holds the top 10.",
+  dashboard:
+    "The app's own stores. MongoDB pre-summed is what the dashboard reads: one document per zone and " +
+    "day (Q6) or per borough and hour (Q7), instead of one per zone and hour.",
 };
 
 const seconds = (v: number | null) => (v == null ? "–" : `${(v / 1000).toFixed(1)} s`);
+
+// One row per store that holds the data, in STORES order: every question on
+// the same store has the same sizes, except the two pre-summed collections.
+const sizeRows = (results: BenchmarkResult[]) =>
+  STORES.flatMap((s) => {
+    const rows = results.filter((r) => r.store === s);
+    return s === "mongo_summary" ? rows : rows.slice(0, 1);
+  });
 
 // Which database answers the app's questions faster. One small bar chart per
 // question (each on its own scale, because the questions differ a lot in
@@ -45,12 +57,14 @@ export default function Benchmarks({ run }: { run: BenchmarkRun }) {
       <div className="card-head">
         <div className="card-title">Which database answers faster?</div>
         <div className="legend" aria-hidden="true">
-          {STORES.map((s) => <span key={s}><i className={`swatch ${s}`} />{STORE_LABEL[s]}</span>)}
+          {STORES.filter((s) => run.results.some((r) => r.store === s))
+            .map((s) => <span key={s}><i className={`swatch ${s}`} />{STORE_LABEL[s]}</span>)}
         </div>
       </div>
       <p className="muted small">
         Questions 1 to 4 ask the same hourly zone summaries, stored three ways. Question 5 asks for the
-        Flow Explorer's top 10 destinations, the case MongoDB was chosen for. Each question ran {runs} times;
+        Flow Explorer's top 10 destinations, the case MongoDB was chosen for. Questions 6 and 7 are the
+        Activity Dashboard's heaviest, over all three months. Each question ran {runs} times;
         bars show the typical (median) time, so shorter is faster. Every store gave the same answers.
         Measured {when(run.run_at)}.
       </p>
@@ -119,16 +133,17 @@ export default function Benchmarks({ run }: { run: BenchmarkRun }) {
             </tr>
           </thead>
           <tbody>
-            {(["hourly", "destinations"] as const).flatMap((data) =>
-              STORES.map((s) => run.results.find((r) => r.store === s && r.data === data))
-                .filter((r): r is BenchmarkResult => r !== undefined)
+            {(["hourly", "destinations", "dashboard"] as const).flatMap((data) =>
+              sizeRows(run.results.filter((r) => r.data === data))
                 .map((r) => {
                   const total = r.storage_bytes != null && r.index_bytes != null
                     ? r.storage_bytes + r.index_bytes : null;
+                  // Q6 and Q7 read different pre-summed collections, so say which.
+                  const which = r.store === "mongo_summary" ? ` (${r.query_name.split(" ")[0]})` : "";
                   return (
-                    <tr key={`${data}-${r.store}`}>
+                    <tr key={`${data}-${r.store}-${r.query_name}`}>
                       <td>{DATA_LABEL[data]}</td>
-                      <td><i className={`swatch ${r.store}`} /> {STORE_LABEL[r.store]}</td>
+                      <td><i className={`swatch ${r.store}`} /> {STORE_LABEL[r.store]}{which}</td>
                       <td className="num">{mb(r.storage_bytes)}</td>
                       <td className="num">{mb(r.index_bytes)}</td>
                       <td className="num">{mb(total)}</td>

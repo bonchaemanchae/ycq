@@ -95,7 +95,7 @@ export function latestRuns(runs: ReconRun[]): Map<string, ReconRun> {
 }
 
 export type BenchmarkResult = {
-  store: "postgres" | "mongo_collection" | "mongo_timeseries";
+  store: "postgres" | "mongo_collection" | "mongo_timeseries" | "mongo_summary";
   query_name: string;
   runs: number;
   cold_ms: number;
@@ -105,7 +105,7 @@ export type BenchmarkResult = {
   index_bytes: number | null;
   load_ms: number | null;
   plan_output: string | null;
-  data: "hourly" | "destinations";   // Q1-Q4 use hourly summaries, Q5 destination lists
+  data: "hourly" | "destinations" | "dashboard";   // Q1-Q4 hourly summaries, Q5 destination lists, Q6-Q7 the dashboard's stores
 };
 
 export type BenchmarkRun = { run_at: string | null; results: BenchmarkResult[] };
@@ -114,6 +114,7 @@ export const STORE_LABEL: Record<BenchmarkResult["store"], string> = {
   postgres: "PostgreSQL",
   mongo_collection: "MongoDB collection",
   mongo_timeseries: "MongoDB time-series",
+  mongo_summary: "MongoDB pre-summed",
 };
 
 export const ms = (v: number) => (v < 10 ? `${v.toFixed(2)} ms` : `${v.toFixed(1)} ms`);

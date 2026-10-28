@@ -117,12 +117,15 @@ def latest_benchmark(conn) -> dict:
     query), with when it ran. Empty if the benchmark hasn't been run.
 
     Each result says which data it measured: Q1 to Q4 use the hourly zone
-    summaries, Q5 the Flow Explorer's destination lists (etl/benchmark.py)."""
+    summaries, Q5 the Flow Explorer's destination lists, Q6 and Q7 the
+    Activity Dashboard's stores (etl/benchmark.py)."""
     with conn.cursor(row_factory=dict_row) as cur:
         rows = cur.execute(
             """SELECT store, query_name, runs, cold_ms, median_ms, p95_ms,
                       storage_bytes, index_bytes, load_ms, plan_output, run_at,
-                      CASE WHEN left(query_name, 2) = 'Q5' THEN 'destinations' ELSE 'hourly' END AS data
+                      CASE left(query_name, 2) WHEN 'Q5' THEN 'destinations'
+                           WHEN 'Q6' THEN 'dashboard' WHEN 'Q7' THEN 'dashboard'
+                           ELSE 'hourly' END AS data
                FROM benchmark_run
                WHERE run_at = (SELECT max(run_at) FROM benchmark_run)
                ORDER BY query_name, store""").fetchall()

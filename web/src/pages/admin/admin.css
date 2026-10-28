@@ -150,10 +150,12 @@ details pre.example { margin-top: 8px; }
   --store-postgres: #2a78d6;
   --store-mongo-collection: #eb6834;
   --store-mongo-timeseries: #1baf7a;
+  --store-mongo-summary: #8a5cd1;
 }
 .swatch.postgres, .bench-fill.postgres { background: var(--store-postgres); }
 .swatch.mongo_collection, .bench-fill.mongo_collection { background: var(--store-mongo-collection); }
 .swatch.mongo_timeseries, .bench-fill.mongo_timeseries { background: var(--store-mongo-timeseries); }
+.swatch.mongo_summary, .bench-fill.mongo_summary { background: var(--store-mongo-summary); }
 .bench-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 14px; margin-bottom: 16px; }
 .bench-query { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
 .bench-title { font-weight: 650; margin-bottom: 8px; }

@@ -24,6 +24,15 @@ origin_destination_snapshots with the top 10 already embedded. Both are the
 app's real stores, already indexed for this lookup. The time-series
 collection isn't part of Q5, because destination lists aren't time series.
 
+Q6 and Q7 are the Activity Dashboard's two heaviest questions over all three
+months, on the app's real stores: PostgreSQL's zone_hour_observation,
+MongoDB's hourly time series, and the pre-summed collection the dashboard
+reads instead (store mongo_summary: one document per zone and day for Q6,
+per borough and hour for Q7; see api/dashboard.py).
+
+    Q6  every zone's totals, three months       (the dashboard map)
+    Q7  pickups by weekday and hour, three months   (the weekday grid)
+
 For each query and store it records the first (cold) run, then the median and
 95th percentile of --runs further runs, the store's data and index size, the
 time to load the store (Q1 to Q4 only), and the query plan (EXPLAIN ANALYZE in
@@ -55,7 +64,7 @@ from pymongo import ASCENDING
 
 from build_aggregates import GRID_SQL
 from common import mongo_db, next_month, parse_month, pg_connect
-from load_mongo import OD, hourly_fields
+from load_mongo import BOROUGH_HOURLY, DAILY, HOURLY, OD, hourly_fields
 
 PG_TABLE = "bench_zone_hour"
 MONGO_COLLECTION = "bench_zone_hour_collection"
@@ -73,6 +82,8 @@ HOUR = datetime(2026, 1, 9, 18)              # a Friday, 6 PM
 WEEK = (datetime(2026, 1, 5), datetime(2026, 1, 12))
 MONTH = (datetime(2026, 3, 1), datetime(2026, 4, 1))   # includes the 8 March clock change
 FLOW_QUERY = "Q5 top 10 destinations, one origin"
+DASHBOARD_DATES = (datetime(2026, 1, 1), datetime(2026, 4, 1))
+DASHBOARD_STORES = ("postgres", "mongo_timeseries", "mongo_summary")
 
 
 def utc(local: datetime) -> datetime:
@@ -256,6 +267,39 @@ def flow_queries(zone: int, day_type: str, time_bucket: str) -> tuple[tuple[str,
     return (sql, params), find
 
 
+def dashboard_queries() -> dict[str, tuple[tuple[str, dict], dict, str]]:
+    """Q6 and Q7: (PostgreSQL SQL and parameters, MongoDB aggregate, the
+    pre-summed collection that answers it). The MongoDB filter is the
+    dashboard's own, on localDate."""
+    start, end = DASHBOARD_DATES
+    params = {"start": start, "end": end}
+    dates = {"$match": {"localDate": {"$gte": f"{start:%Y-%m-%d}", "$lt": f"{end:%Y-%m-%d}"}}}
+    return {
+        "Q6 every zone, three months": (
+            ("SELECT location_id, sum(pickups) AS pickups, sum(dropoffs) AS dropoffs, "
+             "sum(fare_sum) AS fare_sum, sum(fare_trip_count) AS fare_trip_count "
+             "FROM zone_hour_observation WHERE obs_hour >= %(start)s AND obs_hour < %(end)s "
+             "GROUP BY location_id ORDER BY location_id", params),
+            {"aggregate": [
+                dates,
+                {"$group": {"_id": "$meta.zoneId", "pickups": {"$sum": "$pickups"},
+                            "dropoffs": {"$sum": "$dropoffs"}, "fare_sum": {"$sum": "$fareSum"},
+                            "fare_trip_count": {"$sum": "$fareTripCount"}}},
+                {"$sort": {"_id": 1}}]},
+            DAILY),
+        "Q7 weekday and hour, three months": (
+            ("SELECT iso_dow, local_hour, sum(pickups) AS pickups FROM zone_hour_observation "
+             "WHERE obs_hour >= %(start)s AND obs_hour < %(end)s "
+             "GROUP BY iso_dow, local_hour ORDER BY iso_dow, local_hour", params),
+            {"aggregate": [
+                dates,
+                {"$group": {"_id": {"dow": "$isoDayOfWeek", "hour": "$localHour"},
+                            "pickups": {"$sum": "$pickups"}}},
+                {"$sort": {"_id.dow": 1, "_id.hour": 1}}]},
+            BOROUGH_HOURLY),
+    }
+
+
 def run_pg(conn, sql: str, params: dict) -> list[dict]:
     with conn.cursor(row_factory=dict_row) as cur:
         return cur.execute(sql, params).fetchall()
@@ -288,10 +332,13 @@ def normalise(name: str, rows: list[dict], store: str) -> list[tuple]:
         elif name.startswith("Q2"):
             ts = r["timestamp"] if mongo else r["obs_hour_utc"]
             out.append((ts.astimezone(UTC), r["pickups"], r["dropoffs"]))
-        elif name.startswith("Q3"):
+        elif name.startswith(("Q3", "Q6")):
             zone = r["_id"] if mongo else r["location_id"]
             out.append((zone, int(r["pickups"]), int(r["dropoffs"]),
                         float(r["fare_sum"]), int(r["fare_trip_count"])))
+        elif name.startswith("Q7"):
+            dow, hour = (r["_id"]["dow"], r["_id"]["hour"]) if mongo else (r["iso_dow"], r["local_hour"])
+            out.append((dow, hour, int(r["pickups"])))
         else:
             zone = r["_id"] if mongo else r["location_id"]
             out.append((zone, int(r["pickups"])))
@@ -438,6 +485,16 @@ def benchmark(runs: int, zone: int, day_type: str, time_bucket: str) -> None:
             "mongo_collection": (lambda: run_mongo(db[OD], find), lambda: mongo_plan(db, OD, find),
                                  mongo_sizes(db, OD), None),
         })
+
+        for name, ((sql, params), agg, summary) in dashboard_queries().items():
+            stores = {"postgres": (lambda s=sql, p=params: run_pg(conn, s, p),
+                                   lambda s=sql, p=params: pg_plan(conn, s, p),
+                                   pg_sizes(conn, "zone_hour_observation"), None)}
+            for store, coll in (("mongo_timeseries", HOURLY), ("mongo_summary", summary)):
+                stores[store] = (lambda c=coll: run_mongo(db[c], agg),
+                                 lambda c=coll: mongo_plan(db, c, agg),
+                                 mongo_sizes(db, coll), None)
+            results.question(name, stores)
         results.save()
 
 

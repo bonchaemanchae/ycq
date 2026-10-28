@@ -84,7 +84,11 @@ def test_full_run_saves_matching_results_for_all_stores(mongo, db):
     results = admin.latest_benchmark(db)["results"]
     hourly = [r for r in results if r["data"] == "hourly"]
     flow = [r for r in results if r["data"] == "destinations"]
+    dash = [r for r in results if r["data"] == "dashboard"]
     assert len(hourly) == 12                         # 3 stores x 4 questions
+    assert len(dash) == 6                            # 3 stores x Q6 and Q7
+    assert {r["store"] for r in dash} == set(benchmark.DASHBOARD_STORES)
+    assert all(r["storage_bytes"] is not None and r["load_ms"] is None for r in dash)
     assert {r["store"] for r in hourly} == set(benchmark.HOURLY_STORES)
     assert {r["store"] for r in flow} == {"postgres", "mongo_collection"}
     assert {r["query_name"] for r in flow} == {benchmark.FLOW_QUERY}

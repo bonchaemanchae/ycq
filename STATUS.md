@@ -61,8 +61,8 @@ token login, role checks and input validation."*
   Administration page (review §3.2)
 - [x] Admins add analyst or admin accounts in the same Users section
   (`POST /admin/users`); the three default emails stay with `.env`
-- [ ] PostgreSQL read/write roles, if you build them. **Use `sql/014_…`:**
-  `012` and `013` are now taken. Remember the admin rebuild (review §3.1): the
+- [ ] PostgreSQL read/write roles, if you build them. **Use `sql/015_…`:**
+  `012` to `014` are now taken. Remember the admin rebuild (review §3.1): the
   rebuild writes `reconciliation_run` and the summaries, so either give admin
   routes a role that can do that, or keep rebuilds as scripts
 
@@ -211,6 +211,16 @@ Everything the report lists for this part is built and tested.
 - [x] 27 tests in `tests/test_dashboard.py`: every total, rank, average and
   moving average is checked against `zone_hour_observation` in PostgreSQL,
   plus the 23-hour daylight-saving day, empty results and bad filters
+- [x] Faster (Anna): two pre-summed MongoDB collections, `zone_activity_daily`
+  (one document per zone and day) and `borough_activity_hourly` (per borough
+  and hour), built by the loader and checked field by field by
+  reconciliation. Each route reads the smallest one that can answer
+  (`dashboard.source`); every answer says which and how long it took. Three
+  months: 1.8–2.3 s per question before, 17–42 ms after. 37 more tests check
+  they give exactly the hourly answer for every question and filter mix
+- [x] Benchmark Q6 and Q7 time the dashboard's two heaviest questions on
+  PostgreSQL, the hourly time series and the pre-summed collections
+  (`sql/014` adds the `mongo_summary` store)
 
 ### Team review (YCQ_REPO_REVIEW.md)
 
