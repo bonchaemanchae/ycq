@@ -129,19 +129,15 @@ Each feature from the report has one backend file and one page:
 
 | Feature (owner) | Backend (FastAPI) | Website (React) | URL |
 |---|---|---|---|
-| Activity Dashboard (Kessler) | `api/routers/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard` |
+| Activity Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard` |
 | Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/Flows.tsx` | `/flows` |
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner` |
 | Saved Views (Caleb) | `api/routers/saved_views.py` | save and open buttons on the Dashboard and Flow pages | — |
 | Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, Users on the Administration page | — |
 | Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin` |
 
-The Dashboard and Flow Explorer pages call an `/example` route and print its
-JSON, to show the whole path works (page → API → database). Replace both with
-your real work.
-
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
-in `dashboard.py` is served at http://localhost:8000/dashboard/busiest. Get
+in `flows.py` is served at http://localhost:8000/flows/busiest. Get
 PostgreSQL with `conn=Depends(get_pg)`, MongoDB with `mongo()` (both from
 `api/db.py`), and the logged-in user with `user: User = Depends(current_user)`.
 Every route shows up at http://localhost:8000/docs where you can try it. A
@@ -150,10 +146,31 @@ login), `ANY_ROLE` (analysts and admins) or `ADMIN_ONLY`; `tests/test_auth.py`
 calls every route to check it is protected as its list says.
 
 **Website.** Call the backend through `web/src/api.ts` and leave off the `/api`
-prefix: `api<MyType>("/dashboard/busiest")` or `post("/plans", body)`. The
+prefix: `api<MyType>("/flows/busiest")` or `post("/plans", body)`. The
 shared map is `web/src/components/ZoneMap.tsx`; pass
-`values={{ [location_id]: number }}` to colour zones. A brand-new page has to
+`values={{ [location_id]: number }}` to colour zones (add `diverging` when
+values can be negative). Charts use Recharts. A brand-new page has to
 be added to `PAGES` in `web/src/App.tsx` to get a tab.
+
+### Activity Dashboard
+
+The landing page. Every part of it follows the same filters: a date range,
+days of the week, a range of hours (22 to 2 wraps past midnight), boroughs,
+and whether the map shows pickups, drop-offs or the imbalance between them.
+It reads MongoDB's `zone_activity_timeseries` through these routes (each takes
+the filters as query parameters, named like a saved view's filters):
+
+| Route | What it returns | MongoDB features |
+|---|---|---|
+| `GET /dashboard` | Totals and every zone with its rank, share and imbalance (map, tables) | `$facet`, `$setWindowFields` (`$rank`, window `$sum`) |
+| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average | `$setWindowFields` (window `$avg`) |
+| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour | `$facet`, two-stage `$group` |
+| `GET /dashboard/compare` | Up to three zones side by side: median and 90th percentile of hourly pickups, peak hour | `$median`, `$percentile` |
+| `GET /dashboard/context` | Loaded date range, latest import and your recent plans (PostgreSQL) | — |
+
+Averages are total sums divided by total counts, so they match PostgreSQL for
+the same rows (`tests/test_dashboard.py` checks every route against
+`zone_hour_observation`).
 
 ### Rules the database enforces on saved plans
 
@@ -221,7 +238,7 @@ Saved allocation plans are checked by the database itself, not only by the API
 
 ### Change the schema
 
-Add a **new** numbered file in `sql/` (for example `012_my_table.sql`). Never
+Add a **new** numbered file in `sql/` (for example `014_my_table.sql`). Never
 edit one that is already in `main`. Every file is applied again on each
 loader run, so write it to be safe to re-run (`CREATE TABLE IF NOT EXISTS`,
 `CREATE OR REPLACE VIEW`, and so on). Then apply it:

@@ -1,0 +1,30 @@
+/* Activity Dashboard only. Shared colours and controls are in src/styles.css. */
+
+/* filters */
+.dash-filters { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-start; }
+.dash-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dash-field > span:first-child { font-size: 12px; font-weight: 600; color: #4a4944; }
+.dash-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dash-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+.dash-pills button { padding: 4px 11px; border-radius: 999px; font-size: 13px; }
+.dash-pills button.active:hover:not(:disabled) { background: #33332f; color: #fff; border-color: #33332f; }
+
+/* totals */
+.dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 4px; }
+.dash-tile { padding: 12px 14px; margin-bottom: 12px; }
+.dash-tile-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.dash-tile-value { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; font-variant-numeric: tabular-nums; }
+
+/* sections */
+.dash-subtitle { font-weight: 650; margin: 4px 0 2px; }
+.dash-note { margin: 8px 0 0; }
+.dash-stale { opacity: 0.5; transition: opacity 0.15s; }
+.dash-imbalance { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+.dash-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+/* weekday x hour grid */
+.dash-grid { table-layout: fixed; }
+.dash-grid th { padding: 4px 2px; font-size: 10px; text-align: center; }
+.dash-grid tbody th { text-align: left; width: 40px; }
+.dash-grid td { padding: 0; height: 20px; border: 1px solid var(--surface); }
+.dash-grid tbody tr:hover { background: none; }
