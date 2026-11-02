@@ -446,7 +446,9 @@ class Results:
 
 def benchmark(runs: int, zone: int, day_type: str, time_bucket: str) -> None:
     db = mongo_db()
-    with pg_connect(autocommit=True) as conn:
+    # Prepared statements off: after a few runs PostgreSQL can switch to a generic
+    # plan that ignores the dates, which would time a plan the query wouldn't get.
+    with pg_connect(autocommit=True, prepare_threshold=None) as conn:
         print("building the three hourly stores from zone_hour_observation")
         load, size, count = {}, {}, {}
         load["postgres"], count["postgres"] = build_postgres(conn)

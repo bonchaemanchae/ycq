@@ -32,7 +32,11 @@ def _forget_user(conn) -> None:
     conn.execute("SELECT set_config('app.user_id', '', false)")
 
 
-pg_pool = ConnectionPool(_pg_conninfo(), open=False, min_size=1, max_size=10,
+# At least as many connections as the 40 worker threads FastAPI runs routes on.
+# Each request holds a connection throughout, and with 10 the load test showed
+# all threads waiting for one, stalling the API for the 30-second pool timeout
+# at 50 simultaneous requests (etl/load_test.py).
+pg_pool = ConnectionPool(_pg_conninfo(), open=False, min_size=1, max_size=40,
                          kwargs={"autocommit": True}, reset=_forget_user)
 mongo_client = MongoClient(
     host=os.getenv("MONGO_HOST", "localhost"),

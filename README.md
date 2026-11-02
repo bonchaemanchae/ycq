@@ -429,6 +429,27 @@ real stores: `zone_hour_observation`, the hourly time series, and the
 pre-summed collection the dashboard reads. `--explain-summary` prints
 `EXPLAIN ANALYZE` of one month's summary build and changes nothing.
 
+### Evaluate the planner and load-test the API
+
+Both only read data. The backtest makes plans from January and February, using
+the real planner code, then scores them on March, which they never saw, against
+two simple alternatives:
+
+```bash
+docker compose build loader                                     # picks up the scripts
+docker compose run --rm loader python etl/backtest_planner.py
+```
+
+The load test sends real requests to the running API from 1, 5, 10, 20, 50 and
+80 simultaneous users, and reports requests per second, response times and
+failures. It logs in as `analyst1@ycq.local`, so that account needs its password
+in `.env`, and takes about 10 minutes:
+
+```bash
+docker compose run --rm loader python etl/load_test.py
+docker compose run --rm loader python etl/load_test.py --only flow --users 49 50 --seconds 6
+```
+
 ## Tests
 
 ```bash
