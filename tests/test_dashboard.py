@@ -115,6 +115,14 @@ def test_summary_filters(coll, db):
     assert t["pickups"] > 0
 
 
+def test_summary_group_holds_only_sums():
+    """On the time series, $first and $addToSet in this group made the hourly
+    map more than twice as slow, so the borough is in the key and the days
+    are counted apart."""
+    group = dashboard.summary_pipeline(ActivityFilters(hourFrom=7, hourTo=19))[1]["$group"]
+    assert {next(iter(v)) for k, v in group.items() if k != "_id"} == {"$sum"}
+
+
 def test_nothing_matching_is_an_empty_answer(coll):
     s = dashboard.summary(coll, ActivityFilters(boroughs=["Queens"]), NAMES)
     assert s["zones"] == []
@@ -229,12 +237,15 @@ def same(a, b) -> bool:
 ])
 @pytest.mark.parametrize("question, pipeline", [
     ("summary", lambda f: dashboard.summary_pipeline(ActivityFilters(**f))),
+    ("days", lambda f: dashboard.days_pipeline(ActivityFilters(**f))),
     ("series", lambda f: dashboard.series_pipeline(SeriesFilters(**f, bucket="day"))),
     ("series", lambda f: dashboard.series_pipeline(SeriesFilters(**f, bucket="hour"))),
     ("weekdays", lambda f: dashboard.weekday_pipeline(ActivityFilters(**f))),
 ])
 def test_pre_summed_collections_give_the_hourly_answer(mongo, question, pipeline, filters):
-    source = dashboard.source(question, ActivityFilters(**filters))
+    f = ActivityFilters(**filters)
+    source = (dashboard.days_source(f, dashboard.source("summary", f)) if question == "days"
+              else dashboard.source(question, f))
     expected = list(mongo[dashboard.COLLECTION].aggregate(pipeline(filters)))
     assert same(list(mongo[source].aggregate(pipeline(filters))), expected)
 

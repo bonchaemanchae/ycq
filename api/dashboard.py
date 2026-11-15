@@ -128,23 +128,22 @@ def summary_pipeline(f: ActivityFilters) -> list[dict]:
     """Totals and one row per zone. The hourly documents are read once, into
     one row per zone; $facet then builds the totals and the ranked zone list
     from those rows. Rank and share come from $setWindowFields, so the share
-    is out of every matching zone, not just the ones shown."""
+    is out of every matching zone, not just the ones shown.
+
+    The group holds nothing but sums, and the borough is part of its key (a
+    zone has one borough). On the time series, taking the borough with $first
+    doubled the group's time, and collecting each zone's dates to count the
+    days added as much again; the days are counted by days_pipeline."""
     return [
         match(f),
-        {"$group": {"_id": "$meta.zoneId", "borough": {"$first": "$meta.borough"},
-                    **_sum_fields(), "days": {"$addToSet": "$localDate"}}},
+        {"$group": {"_id": {"zone": "$meta.zoneId", "borough": "$meta.borough"}, **_sum_fields()}},
+        {"$set": {"_id": "$_id.zone", "borough": "$_id.borough"}},
         {"$facet": {
-            "days": [
-                {"$unwind": "$days"},
-                {"$group": {"_id": "$days"}},
-                {"$count": "days"},
-            ],
             "totals": [
                 {"$group": {"_id": None, **_sum_fields(), "zones": {"$sum": 1}}},
                 {"$project": {"_id": 0}},
             ],
             "zones": [
-                {"$project": {"days": 0}},
                 {"$set": {"imbalance": {"$subtract": ["$pickups", "$dropoffs"]}}},
                 {"$setWindowFields": {
                     "sortBy": {"pickups": -1},
@@ -166,6 +165,18 @@ def summary_pipeline(f: ActivityFilters) -> list[dict]:
             ],
         }},
     ]
+
+
+def days_pipeline(f: ActivityFilters) -> list[dict]:
+    """How many dates the filters match."""
+    return [match(f), {"$group": {"_id": "$localDate"}}, {"$count": "days"}]
+
+
+def days_source(f: ActivityFilters, summary_source: str) -> str:
+    """Where the summary's days are counted. A borough has a document for an
+    hour exactly when one of its zones has, so the 44 times fewer borough-hour
+    documents match the same dates, unless particular zones are picked."""
+    return summary_source if f.zoneIds else BOROUGH_HOURLY
 
 
 def series_pipeline(f: SeriesFilters) -> list[dict]:
@@ -265,7 +276,7 @@ def summary(coll: Collection, f: ActivityFilters, names: dict[int, str]) -> dict
     facet = next(coll.aggregate(summary_pipeline(f)))
     t = facet["totals"][0] if facet["totals"] else None
     if t:
-        t["days"] = facet["days"][0]["days"]
+        t["days"] = next(coll.database[days_source(f, coll.name)].aggregate(days_pipeline(f)))["days"]
     totals = {
         "pickups": t["pickups"] if t else 0,
         "dropoffs": t["dropoffs"] if t else 0,

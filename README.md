@@ -200,6 +200,17 @@ type. On the same laptop the benchmark's three-month questions on the time
 series went from 1,787 and 1,919 ms to 62 and 76 ms, and the hourly map under
 80 simultaneous users from 58 failed requests to none.
 
+The map's summary groups the documents by zone, and that group holds nothing
+but sums. It used to take each zone's borough with `$first` and collect each
+zone's dates with `$addToSet` to count the days. On the time series those two
+cost more than the eight sums together (64 ms for the sums alone, 157 ms with
+both). The borough is now part of the group's key, and the days are counted
+by a second, small query on the borough-hour documents (`days_pipeline` and
+`days_source` in `api/dashboard.py`). With an hour filter over three months
+the map went from about 3 requests a second to 12 for one user and 27 to 29
+for 20 to 80 users, and the 95th percentile response at 80 users from 28
+seconds to 3.3.
+
 A database loaded with the old layout is rebuilt by itself: the loader drops
 the three activity collections if they still hold averages
 (`drop_old_layouts` in `etl/load_mongo.py`) and loads them again from
