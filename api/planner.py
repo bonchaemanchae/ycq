@@ -309,14 +309,27 @@ def list_versions(conn: psycopg.Connection, owner_user_id: int, plan_id: int) ->
             """SELECT v.version_no, v.created_at, v.fleet_size, v.iso_dow,
                       v.start_hour, v.end_hour, v.note,
                       count(DISTINCT r.location_id) FILTER (WHERE r.final_taxis > 0)::int AS zones_used,
-                      count(*) FILTER (WHERE r.final_taxis <> r.proposed_taxis)::int     AS edited_rows
+                      count(*) FILTER (WHERE r.final_taxis <> r.proposed_taxis)::int     AS edited_rows,
+                      c.hash, c.problem AS seal_problem
                FROM allocation_plan_version v
                LEFT JOIN allocation_result r USING (allocation_plan_id, version_no)
+               LEFT JOIN plan_seal_check(%s) c USING (allocation_plan_id, version_no)
                WHERE v.allocation_plan_id = %s
-               GROUP BY v.allocation_plan_id, v.version_no
+               GROUP BY v.allocation_plan_id, v.version_no, c.hash, c.problem
                ORDER BY v.version_no DESC""",
-            (plan_id,),
+            (plan_id, plan_id),
         ).fetchall()
+
+
+def check_seals(conn: psycopg.Connection) -> dict:
+    """Recompute the hash chain of every plan the caller can read (sql/017):
+    how many versions there are, and those whose contents or seal no longer
+    match, each {allocation_plan_id, version_no, problem}."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            "SELECT allocation_plan_id, version_no, problem FROM plan_seal_check() ORDER BY 1, 2"
+        ).fetchall()
+    return {"versions": len(rows), "problems": [r for r in rows if r["problem"]]}
 
 
 def get_version(conn: psycopg.Connection, owner_user_id: int, plan_id: int,

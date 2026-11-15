@@ -9,6 +9,7 @@ Served at /admin/... here and at /api/admin/... from the website.
   GET /admin/reconciliation   recent PostgreSQL-vs-MongoDB reconciliation runs
   GET /admin/orphaned-views   saved views whose owner no longer exists, checked now
   DELETE /admin/orphaned-views   delete them
+  GET /admin/plan-seals       every saved plan version's hash chain, checked now
   GET /admin/benchmarks       the latest benchmark run (etl/benchmark.py)
 
 Only admins get here: api/main.py adds every route in this file with the
@@ -22,7 +23,7 @@ import math
 from fastapi import APIRouter, Depends, HTTPException, Query
 from psycopg.rows import dict_row
 
-from .. import saved_views
+from .. import planner, saved_views
 from ..db import get_pg, mongo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -174,6 +175,13 @@ def orphaned_views(conn=Depends(get_pg)):
 def delete_orphaned_views(conn=Depends(get_pg)):
     """Delete the saved views whose owner no longer exists."""
     return {"deleted": saved_views.delete_orphaned_views(mongo()[saved_views.COLLECTION], conn)}
+
+
+@router.get("/plan-seals")
+def plan_seals(conn=Depends(get_pg)):
+    """How many saved plan versions there are, and any whose contents no
+    longer match the hash they were sealed with."""
+    return planner.check_seals(conn)
 
 
 @router.get("/benchmarks")

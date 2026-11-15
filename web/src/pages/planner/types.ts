@@ -47,6 +47,8 @@ export type VersionSummary = {
   note: string | null;
   zones_used: number;
   edited_rows: number;
+  hash: string | null;          // SHA-256 seal, chained to the version before (sql/017)
+  seal_problem: string | null;  // null when the version still matches its seal
 };
 
 export type SavedVersion = {

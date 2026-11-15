@@ -98,6 +98,9 @@ def test_the_api_role_reads_every_table_and_view(api_conn):
     "REFRESH MATERIALIZED VIEW od_summary",
     "CREATE ROLE sneaky",
     "ALTER TABLE allocation_result DISABLE TRIGGER USER",
+    "INSERT INTO allocation_plan_version_seal VALUES (1, 1, NULL, repeat('0', 64))",
+    "UPDATE allocation_plan_version_seal SET hash = repeat('0', 64)",
+    "DELETE FROM allocation_plan_version_seal",
 ])
 def test_the_api_role_cannot_change_data_or_schema_it_does_not_own(api_conn, statement):
     with pytest.raises(errors.InsufficientPrivilege):
@@ -127,6 +130,10 @@ def test_the_whole_app_works_as_the_api_role(api_client, db, make_user):
     for _ in range(2):
         r = api_client.post(f"/plans/{plan}/versions", json={"settings": settings}, headers=admin)
         assert r.status_code == 201, r.text
+    # Both were sealed by the trigger, which the role itself can't do (sql/017)
+    versions = api_client.get(f"/plans/{plan}/versions", headers=admin).json()
+    assert all(v["hash"] and v["seal_problem"] is None for v in versions)
+    assert api_client.get("/admin/plan-seals", headers=admin).json()["problems"] == []
     assert api_client.patch(f"/plans/{plan}", json={"name": "Renamed"}, headers=admin).status_code == 200
     r = api_client.get(f"/plans/{plan}/compare?from_version=1&to_version=2", headers=admin)
     assert r.status_code == 200, r.text

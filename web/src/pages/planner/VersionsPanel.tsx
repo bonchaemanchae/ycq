@@ -45,6 +45,13 @@ export default function VersionsPanel({ versions, openVersion, onOpen, onCompare
                 {v.edited_rows > 0 && <> · <span className="tag">{v.edited_rows} edited</span></>}
               </div>
               {v.note && <div className="small note">“{v.note}”</div>}
+              {v.seal_problem ? (
+                <div className="small"><span className="tag warn">! {v.seal_problem}</span></div>
+              ) : v.hash && (
+                <div className="muted small" title={`SHA-256 ${v.hash}, chained to the version before it`}>
+                  ✓ sealed <code>{v.hash.slice(0, 12)}</code>
+                </div>
+              )}
             </div>
             <button onClick={() => onOpen(v.version_no)} disabled={v.version_no === openVersion}>
               {v.version_no === openVersion ? "Opened" : "Open"}

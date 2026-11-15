@@ -1,4 +1,5 @@
 import { n, when, type ImportBatch, type ReconRun } from "./types";
+import PlanSeals from "./PlanSeals";
 import ViewOwners from "./ViewOwners";
 
 type Pair = { label: string; pg: number | null; mongo: number | null };
@@ -58,6 +59,7 @@ export default function Reconciliation({ batches, runs, latest }: {
         })}
       </div>
       <ViewOwners />
+      <PlanSeals />
 
       <details className="more">
         <summary>All reconciliation runs ({runs.length})</summary>

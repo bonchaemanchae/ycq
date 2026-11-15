@@ -219,14 +219,33 @@ can't hold a foreign key into it.
 ### Rules the database enforces on saved plans
 
 Saved allocation plans are checked by the database itself, not only by the API
-(`sql/006`, `011`, `012`):
+(`sql/006`, `011`, `012`, `017`):
 
 - every hour of a version adds up exactly to the fleet size, and no hour in the
   version's range is missing;
 - every result's zone has a map shape and is in one of the version's boroughs;
 - a saved version, its boroughs and its results can't be updated or deleted on
   their own. Changes are saved as a new version, and deleting the plan removes
-  all its versions.
+  all its versions;
+- a saved version takes no more rows.
+
+**Hash chain.** Those triggers stop the API, but the database owner could
+switch one off, edit a row and switch it back on. So each version is sealed
+when it is committed (`sql/017`): `allocation_plan_version_seal` holds a
+SHA-256 of the version's settings, boroughs and results together with the hash
+of the version before it, so a plan's versions form a chain. Editing a version
+changes what its hash should be, and replacing its seal to match breaks the
+next version's link.
+
+- The Planner shows each version's hash, or a warning if it no longer matches.
+- Administration → Database check recomputes every hash each time it opens
+  (`GET /admin/plan-seals`).
+- In psql: `SELECT * FROM plan_seal_check() WHERE problem IS NOT NULL;`
+
+The API's login can read seals but not write them; the sealing trigger runs
+with the owner's rights. The chain can't show a rewrite of a version and every
+seal after it, or the removal of a plan's newest version, unless someone kept
+a copy of the latest hash.
 
 ### Users and login
 
