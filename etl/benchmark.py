@@ -185,6 +185,13 @@ def pg_sizes(conn, relation: str) -> tuple[int, int]:
                         (relation, relation)).fetchone()
 
 
+def settle(db) -> None:
+    """Make MongoDB write its data files now. It does so once a minute, and
+    until then a collection that was just loaded reports a size well under
+    what it will hold (1.8 MB for a time series that settled at 4.3 MB)."""
+    db.client.admin.command("fsync")
+
+
 def mongo_sizes(db, name: str) -> tuple[int | None, int | None]:
     """Storage and index size in bytes. For a time-series collection MongoDB
     reports its internal buckets, which is the space it really uses."""
@@ -456,6 +463,8 @@ def benchmark(runs: int, zone: int, day_type: str, time_bucket: str) -> None:
         for store, name, ts in (("mongo_collection", MONGO_COLLECTION, False),
                                 ("mongo_timeseries", MONGO_TIMESERIES, True)):
             load[store], count[store] = build_mongo(db, name, ts)
+        settle(db)
+        for store, name in (("mongo_collection", MONGO_COLLECTION), ("mongo_timeseries", MONGO_TIMESERIES)):
             size[store] = mongo_sizes(db, name)
         for store in HOURLY_STORES:
             data, index = size[store]

@@ -8,7 +8,9 @@ Each simulated user sends one request after another, waiting for each answer,
 through the real login, role checks and limited database logins. Everything
 here only reads, so no data changes. Every question is run at every number of
 users, and the script reports requests per second, the median and 95th
-percentile response time, and failures.
+percentile response time, and failures. The results are saved in PostgreSQL
+(table load_test_run, one row per question and number of users; --no-save
+skips this).
 
 It logs in as the analyst1 account (YCQ_ANALYST1_PASSWORD), or --email with
 LOAD_TEST_PASSWORD. The API and this script share one machine, so compare the
@@ -24,6 +26,7 @@ import time
 import httpx
 
 from benchmark import percentile
+from common import pg_connect
 
 ALL_MONTHS = "dateFrom=2026-01-01&dateTo=2026-03-31"
 
@@ -72,9 +75,23 @@ def run(url: str, headers: dict, question: tuple, users: int, seconds: float) ->
     for t in threads:
         t.join()
     elapsed = time.perf_counter() - t0
-    return {"users": users, "rps": len(times) / elapsed, "failed": len(failures),
+    return {"users": users, "seconds": elapsed, "requests": len(times),
+            "rps": len(times) / elapsed, "failed": len(failures),
             "median": statistics.median(times) if times else 0,
             "p95": percentile(times, 95) if times else 0}
+
+
+def save(results: list[tuple[str, dict]]) -> None:
+    """All of one test's results in one transaction, sharing one run_at."""
+    with pg_connect() as conn:
+        for name, r in results:
+            conn.execute(
+                """INSERT INTO load_test_run (question, users, seconds, requests, failed,
+                                              requests_per_sec, median_ms, p95_ms)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (name, r["users"], round(r["seconds"], 1), r["requests"], r["failed"],
+                 round(r["rps"], 2), round(r["median"], 3), round(r["p95"], 3)))
+    print(f"\nsaved {len(results)} results to load_test_run")
 
 
 def main() -> None:
@@ -85,6 +102,7 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=15, help="seconds per run (default 15)")
     ap.add_argument("--email", default="analyst1@ycq.local")
     ap.add_argument("--only", help="run only the questions whose name contains this")
+    ap.add_argument("--no-save", action="store_true", help="don't save the results in load_test_run")
     args = ap.parse_args()
     password = os.getenv("LOAD_TEST_PASSWORD") or os.getenv("YCQ_ANALYST1_PASSWORD")
     if not password:
@@ -98,6 +116,7 @@ def main() -> None:
 
     print(f"{args.seconds:.0f} seconds per run, one API process, {os.cpu_count()} CPUs in this container\n")
     print(f"{'question':<22}{'users':>6}{'req/s':>9}{'median ms':>11}{'p95 ms':>9}{'failed':>8}")
+    results = []
     for question in QUESTIONS:
         name, method, path, body = question
         if args.only and args.only.lower() not in name.lower():
@@ -107,7 +126,10 @@ def main() -> None:
             r = run(args.url, headers, q, users, args.seconds)
             print(f"{name:<22}{r['users']:>6}{r['rps']:>9.1f}{r['median']:>11.1f}{r['p95']:>9.1f}"
                   f"{r['failed']:>8}", flush=True)
+            results.append((name, r))
             time.sleep(1)
+    if results and not args.no_save:
+        save(results)
 
 
 if __name__ == "__main__":

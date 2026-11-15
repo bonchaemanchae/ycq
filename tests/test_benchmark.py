@@ -97,6 +97,18 @@ def test_full_run_saves_matching_results_for_all_stores(mongo, db):
     assert all(r["load_ms"] is None for r in flow)   # the app's own stores, not rebuilt
 
 
+def test_sizes_are_read_after_mongodb_has_written_its_files(mongo):
+    """Straight after a load MongoDB reports a size well under the real one."""
+    mongo.drop_collection("size_check")
+    mongo["size_check"].insert_many([{"n": i, "text": "x" * 200} for i in range(20_000)])
+    try:
+        benchmark.settle(mongo)
+        data, index = benchmark.mongo_sizes(mongo, "size_check")
+        assert data > 100_000 and index > 0
+    finally:
+        mongo.drop_collection("size_check")
+
+
 def test_explain_summary_changes_nothing(db, monkeypatch):
     before = db.execute("SELECT count(*), sum(pickups) FROM zone_hour_observation").fetchone()
     out = run_ok("etl/benchmark.py", "--explain-summary", "2026-01").stdout

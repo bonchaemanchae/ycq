@@ -495,11 +495,14 @@ docker compose run --rm loader python etl/backtest_planner.py
 The load test sends real requests to the running API from 1, 5, 10, 20, 50 and
 80 simultaneous users, and reports requests per second, response times and
 failures. It logs in as `analyst1@ycq.local`, so that account needs its password
-in `.env`, and takes about 10 minutes:
+in `.env`, and takes about 10 minutes. The results are saved in the
+`load_test_run` table (`sql/018`), one row per question and number of users
+(`--no-save` skips this):
 
 ```bash
 docker compose run --rm loader python etl/load_test.py
 docker compose run --rm loader python etl/load_test.py --only flow --users 49 50 --seconds 6
+docker compose exec postgres psql -U ycq -d ycq -c "SELECT question, users, requests_per_sec, median_ms, p95_ms, failed FROM load_test_run WHERE run_at = (SELECT max(run_at) FROM load_test_run) ORDER BY load_test_run_id"
 ```
 
 ### Measure the design choices

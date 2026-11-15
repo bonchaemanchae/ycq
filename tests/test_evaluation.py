@@ -6,6 +6,7 @@ needs a running API, so only its command line is checked.
 """
 import sys
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
@@ -105,4 +106,23 @@ def test_evidence_command_line():
 
 
 def test_load_test_command_line():
-    assert "--users" in run_ok("etl/load_test.py", "--help").stdout
+    out = run_ok("etl/load_test.py", "--help").stdout
+    assert "--users" in out and "--no-save" in out
+
+
+def test_load_test_results_are_saved_together(db, monkeypatch):
+    import load_test
+    monkeypatch.setattr(load_test, "pg_connect", pg_connect)       # the test database
+    result = {"users": 5, "seconds": 15.04, "requests": 300, "failed": 2, "rps": 19.95,
+              "median": 240.1234, "p95": 410.5}
+    load_test.save([("Flow Explorer", result), ("Flow Explorer", {**result, "users": 10})])
+    rows = db.execute(
+        """SELECT question, users, requests, failed, requests_per_sec, median_ms, run_at
+           FROM load_test_run WHERE run_at = (SELECT max(run_at) FROM load_test_run)
+           ORDER BY users""").fetchall()
+    assert [r[:6] for r in rows] == [("Flow Explorer", 5, 300, 2, Decimal("19.95"), Decimal("240.123")),
+                                     ("Flow Explorer", 10, 300, 2, Decimal("19.95"), Decimal("240.123"))]
+    assert rows[0][6] == rows[1][6]                                # one test, one run_at
+    with pytest.raises(Exception):                                 # the table refuses nonsense
+        db.execute("INSERT INTO load_test_run (question, users, seconds, requests, failed, "
+                   "requests_per_sec) VALUES ('x', 0, 1, 1, 0, 1)")
