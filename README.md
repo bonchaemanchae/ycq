@@ -203,7 +203,7 @@ plans are on the PostgreSQL side.
 | `GET /views?page=dashboard` | Your views, newest first (optionally one page's) |
 | `POST /views` | Save `{name, page, filters, widgets}` |
 | `GET /views/{id}` | One view |
-| `PATCH /views/{id}` | Rename, or store the page's new filters or widgets |
+| `PATCH /views/{id}` | Rename, or store the page's new filters or widgets. With `expectedUpdatedAt`, 409 if the view changed since |
 | `DELETE /views/{id}` | Delete it |
 
 `filters` are the page's own, defined once in `api/filters.py`: the
@@ -215,6 +215,13 @@ free-form: the dashboard keeps its compared zones and hourly or daily chart
 there, the Flow Explorer whether the month comparison is open. A zone or
 borough is checked against PostgreSQL before a view is saved, since MongoDB
 can't hold a foreign key into it.
+
+Two tabs can have the same view open. The panel sends the `updatedAt` it
+loaded with every change, and MongoDB makes the change only if the view still
+has it (one atomic `find_one_and_update`); otherwise the API answers 409 and
+the panel loads the view again, so the second save can't silently undo the
+first. No lock is held while you edit: this is optimistic concurrency, with
+the check at the write.
 
 ### Rules the database enforces on saved plans
 

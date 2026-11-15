@@ -8,7 +8,8 @@ their "Saved views" panel (web/src/components/SavedViews.tsx).
   GET    /views?page=dashboard   your views, newest first (optionally one page's)
   POST   /views                  save {name, page, filters, widgets}
   GET    /views/{id}             one view
-  PATCH  /views/{id}             rename, or store new filters or widgets
+  PATCH  /views/{id}             rename, or store new filters or widgets; with
+                                 expectedUpdatedAt, 409 if the view changed since
   DELETE /views/{id}
 """
 from typing import Literal
@@ -29,7 +30,7 @@ def _coll():
 def _http(e: Exception) -> HTTPException:
     if isinstance(e, views.ViewNotFound):
         return HTTPException(404, str(e))
-    if isinstance(e, views.ViewNameTaken):
+    if isinstance(e, (views.ViewNameTaken, views.ViewChanged)):
         return HTTPException(409, str(e))
     return HTTPException(422, str(e))
 

@@ -11,6 +11,13 @@ call one of these and return the result.
     rename_view(coll, owner, view["_id"], "Morning peak")
     update_view(coll, conn, owner, view["_id"], ViewUpdate(filters=...))   # the page's new filters
 
+Two tabs can hold the same view. An update may say which state it was made
+from (expectedUpdatedAt, the updatedAt the page loaded); MongoDB then makes
+the change only if the view still has it, in one atomic find-and-update, and
+otherwise the update is refused with ViewChanged. This is optimistic
+concurrency: no lock is held while the user edits, the check happens at the
+write, and the one who lost loads the view again.
+
 A view belongs to one page and holds only that page's filters
 (filters.page_problem), so it always reopens as saved. Widgets hold the rest
 of the page's layout in whatever shape the page likes (the dashboard's
@@ -47,6 +54,10 @@ class ViewError(ValueError):
 
 class ViewNameTaken(ViewError):
     """The owner already has a view with that name (shown as a 409)."""
+
+
+class ViewChanged(ViewError):
+    """The view was changed after the caller loaded it (shown as a 409)."""
 
 
 class ViewNotFound(LookupError):
@@ -87,12 +98,14 @@ class ViewCreate(BaseModel):
 
 class ViewUpdate(BaseModel):
     """A new name, new filters, new widgets, or any of them together. The
-    page stays the one the view was saved for."""
+    page stays the one the view was saved for. With expectedUpdatedAt, only
+    if the view hasn't changed since then."""
     model_config = ConfigDict(extra="forbid")
 
     name: Name | None = None
     filters: SavedFilters | None = None
     widgets: dict[str, Any] | None = None
+    expectedUpdatedAt: datetime | None = None
 
     @model_validator(mode="after")
     def check(self):
@@ -205,20 +218,33 @@ def create_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int,
     return _out(doc)
 
 
-def _set(coll: Collection, owner_user_id: int, view_id: str, fields: dict) -> dict:
+def _set(coll: Collection, owner_user_id: int, view_id: str, fields: dict,
+         expected: datetime | None = None) -> dict:
+    """Store the fields and a new updatedAt; with `expected`, only if the
+    view's updatedAt is still that."""
+    mine = {"_id": _oid(view_id), "ownerUserId": owner_user_id}
+    # updatedAt is what a later update is checked against, so it must change
+    # on every write: two in the same millisecond would otherwise look like
+    # one. A pipeline update can read the stored value; $literal keeps a name
+    # such as "$x" from being read as a field path.
+    stamp = {"$max": [_now(), {"$add": ["$updatedAt", 1]}]}
     with _write_errors(fields.get("name", "")):
         doc = coll.find_one_and_update(
-            {"_id": _oid(view_id), "ownerUserId": owner_user_id},
-            {"$set": {**fields, "updatedAt": _now()}},
+            {**mine, **({"updatedAt": expected} if expected else {})},
+            [{"$set": {**{k: {"$literal": v} for k, v in fields.items()}, "updatedAt": stamp}}],
             return_document=ReturnDocument.AFTER,
         )
     if doc is None:
+        if expected and coll.count_documents(mine, limit=1):
+            raise ViewChanged("this view was changed somewhere else after you loaded it; "
+                              "load it again before saving")
         raise ViewNotFound("view not found")
     return _out(doc)
 
 
-def rename_view(coll: Collection, owner_user_id: int, view_id: str, name: str) -> dict:
-    return _set(coll, owner_user_id, view_id, {"name": name.strip()})
+def rename_view(coll: Collection, owner_user_id: int, view_id: str, name: str,
+                expected: datetime | None = None) -> dict:
+    return _set(coll, owner_user_id, view_id, {"name": name.strip()}, expected)
 
 
 def update_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int, view_id: str,
@@ -235,7 +261,7 @@ def update_view(coll: Collection, conn: psycopg.Connection, owner_user_id: int, 
         fields["widgets"] = change.widgets
     if change.name is not None:
         fields["name"] = change.name
-    return _set(coll, owner_user_id, view_id, fields)
+    return _set(coll, owner_user_id, view_id, fields, change.expectedUpdatedAt)
 
 
 def delete_view(coll: Collection, owner_user_id: int, view_id: str) -> None:

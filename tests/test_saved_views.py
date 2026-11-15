@@ -113,6 +113,51 @@ def test_rename_updates_name_and_updated_at(views, db):
     assert sv.get_view(views, OWNER, v["_id"]) == renamed
 
 
+def test_a_change_made_from_a_stale_copy_is_refused(views, db):
+    """Two tabs load the view; the second to save would silently undo the first."""
+    loaded = create(views, db)
+    first = sv.rename_view(views, OWNER, loaded["_id"], "From tab one", expected=loaded["updatedAt"])
+    with pytest.raises(sv.ViewChanged):
+        sv.update_view(views, db, OWNER, loaded["_id"], sv.ViewUpdate.model_validate(
+            {"filters": {"hourFrom": 1}, "expectedUpdatedAt": loaded["updatedAt"]}))
+    assert sv.get_view(views, OWNER, loaded["_id"]) == first          # tab one's change is kept
+    # Loading it again gives the current state, and saving from that works.
+    saved = sv.update_view(views, db, OWNER, loaded["_id"], sv.ViewUpdate.model_validate(
+        {"filters": {"hourFrom": 1}, "expectedUpdatedAt": first["updatedAt"]}))
+    assert (saved["name"], saved["filters"]) == ("From tab one", {"hourFrom": 1})
+    # Without expectedUpdatedAt nothing is checked, as before.
+    assert sv.rename_view(views, OWNER, loaded["_id"], "Unchecked")["name"] == "Unchecked"
+
+
+def test_a_stale_copy_of_a_missing_or_foreign_view_is_still_not_found(views, db):
+    v = create(views, db)
+    with pytest.raises(sv.ViewNotFound):
+        sv.rename_view(views, OTHER, v["_id"], "Mine now", expected=v["updatedAt"])
+    sv.delete_view(views, OWNER, v["_id"])
+    with pytest.raises(sv.ViewNotFound):
+        sv.rename_view(views, OWNER, v["_id"], "Gone", expected=v["updatedAt"])
+
+
+def test_every_write_changes_updated_at(views, db, monkeypatch):
+    """Even two in the same millisecond, or the second would pass the first's check."""
+    v = create(views, db)
+    monkeypatch.setattr(sv, "_now", lambda: v["updatedAt"])
+    once = sv.rename_view(views, OWNER, v["_id"], "Once")
+    twice = sv.rename_view(views, OWNER, v["_id"], "Twice")
+    assert v["updatedAt"] < once["updatedAt"] < twice["updatedAt"]
+    with pytest.raises(sv.ViewChanged):
+        sv.rename_view(views, OWNER, v["_id"], "Stale", expected=once["updatedAt"])
+
+
+def test_values_are_stored_as_given_not_as_field_paths(views, db):
+    v = create(views, db)
+    changed = sv.update_view(views, db, OWNER, v["_id"], sv.ViewUpdate.model_validate(
+        {"name": "$updatedAt", "widgets": {"note": "$name", "nested": {"$literal": 1}}}))
+    assert changed["name"] == "$updatedAt"
+    assert changed["widgets"] == {"note": "$name", "nested": {"$literal": 1}}
+    assert sv.get_view(views, OWNER, v["_id"]) == changed
+
+
 def test_delete_own_view(views, db):
     v = create(views, db)
     sv.delete_view(views, OWNER, v["_id"])
@@ -368,6 +413,16 @@ def test_crud_through_the_api(client, views, make_user):
         assert r.status_code == 200, r.text
         assert (r.json()["filters"], r.json()["name"]) == (evening, "Zone A evenings")
         assert client.patch(f"/views/{view_id}", json={}, headers=headers).status_code == 422
+
+        # The panel sends the updatedAt it loaded; a second save from that copy is refused.
+        current = r.json()["updatedAt"]
+        r = client.patch(f"/views/{view_id}", json={"name": "Tab one", "expectedUpdatedAt": current},
+                         headers=headers)
+        assert r.status_code == 200, r.text
+        stale = client.patch(f"/views/{view_id}", json={"name": "Tab two", "expectedUpdatedAt": current},
+                             headers=headers)
+        assert stale.status_code == 409 and "changed somewhere else" in stale.json()["detail"]
+        assert client.get(f"/views/{view_id}", headers=headers).json()["name"] == "Tab one"
 
         other = make_user("bo@test.local", "analyst")
         assert client.get(f"/views/{view_id}", headers=login(client, "bo@test.local")).status_code == 404

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, del, patch, post } from "../api";
+import { api, ApiError, del, patch, post } from "../api";
 import "./saved-views.css";
 
 // What GET /views returns (api/saved_views.py). Filters and widgets are the
@@ -48,8 +48,9 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const load = () => api<SavedView[]>(`/views?page=${page}`).then(setViews);
   useEffect(() => {
-    api<SavedView[]>(`/views?page=${page}`).then(setViews).catch((e: Error) => setError(e.message));
+    load().catch((e: Error) => setError(e.message));
   }, [page]);
 
   // Every change goes through here: one at a time, errors shown above the list.
@@ -82,9 +83,20 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
     setConfirmDelete(null);
     onOpen(v);
   };
-  const update = (v: SavedView) => run(async () => replace(await patch<SavedView>(`/views/${v._id}`, current)));
+  // A change says which state of the view it was made from. If the view was
+  // changed in another tab since, the API refuses (409) rather than overwrite
+  // that change, and the list is loaded again so it shows what is stored.
+  const change = async (v: SavedView, body: object) => {
+    try {
+      replace(await patch<SavedView>(`/views/${v._id}`, { ...body, expectedUpdatedAt: v.updatedAt }));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) await load();
+      throw e;
+    }
+  };
+  const update = (v: SavedView) => run(() => change(v, current!));
   const rename = (v: SavedView) => run(async () => {
-    replace(await patch<SavedView>(`/views/${v._id}`, { name: renameTo }));
+    await change(v, { name: renameTo });
     setRenaming(null);
   });
   const remove = (v: SavedView) => run(async () => {
