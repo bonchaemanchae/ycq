@@ -491,6 +491,24 @@ docker compose run --rm loader python etl/load_test.py
 docker compose run --rm loader python etl/load_test.py --only flow --users 49 50 --seconds 6
 ```
 
+### Measure the design choices
+
+`etl/evidence.py` shows why each store is laid out as it is. It reads the real
+databases, builds its one experiment in a scratch MongoDB database that it
+drops afterwards, and takes about a minute:
+
+```bash
+docker compose run --rm loader python etl/evidence.py
+docker compose run --rm loader python etl/evidence.py --only buckets
+```
+
+| Part | What it measures |
+|---|---|
+| `buckets` | The hourly documents copied into two time-series collections: with averages that are `null` for an hour without trips, and with sums and counts only, as stored. Buckets used, buckets closed by a change of type, load time and the dashboard summary's time |
+| `routing` | The dashboard's three questions over every loaded month, on the hourly time series and on the pre-summed collection the API picks, with the answers compared |
+| `timestamp` | The same totals with dates matched on `localDate` and on the time series' own `timestamp` |
+| `plans` | PostgreSQL's `EXPLAIN ANALYZE` for a week of trips (one partition, through its BRIN index) and for the planner's statistics, and MongoDB's execution statistics for the dashboard and Flow Explorer reads |
+
 ## Tests
 
 ```bash
@@ -530,7 +548,7 @@ web/        React + TypeScript (Vite) website: src/pages/ (one per feature), src
 sql/        schema, applied in number order by etl/setup_db.py
 etl/        load_all (what the loader container runs), setup_db, load_zones,
             import_month, build_aggregates, load_mongo, reconcile, delete_month,
-            benchmark
+            benchmark, backtest_planner, load_test, evidence
 scripts/    download_data.py (TLC files + checksum check)
 tests/      pytest suite (uses its own ycq_test databases)
 data/       downloaded files (not in git)

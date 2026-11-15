@@ -9,7 +9,7 @@ from datetime import date
 
 import pytest
 
-from conftest import ROOT, pg_connect, run_ok
+from conftest import ROOT, pg_connect, run, run_ok
 
 sys.path.insert(0, str(ROOT / "etl"))
 sys.path.insert(0, str(ROOT))
@@ -76,6 +76,32 @@ def test_the_pool_has_a_connection_for_every_worker_thread():
     """With fewer, the load test stalled at 50 simultaneous requests: every
     thread waiting for a connection, and no thread free to finish a request."""
     assert pg_pool.max_size >= 40
+
+
+def test_evidence_runs_on_the_loaded_data_and_leaves_nothing_behind(mongo):
+    def counts():
+        return {name: mongo[name].count_documents({}) for name in mongo.list_collection_names()
+                if not name.startswith("system.")}
+
+    before = counts()
+    out = run_ok("etl/evidence.py").stdout
+    # buckets: storing averages that are null without trips closes buckets; sums and counts don't
+    with_averages, as_stored = (line.split() for line in out.splitlines()
+                                if line.startswith(("averages, null", "sums and counts")))
+    assert int(with_averages[-4].replace(",", "")) > 0 and as_stored[-4] == "0"
+    # routing: each question is answered the same by the collection the API reads
+    assert sum(line.endswith("  same") for line in out.splitlines()) == 3 and "DIFFERENT" not in out
+    # plans: only the month's partition is read (which index, the planner decides by table size)
+    assert "trip_2026_03" in out and "trip_2026_01" not in out and "zone_hour_observation" in out
+    assert out.count("Execution Time") == 2
+    assert "UNPACK_TS_BUCKET" in out
+    assert f"{mongo.name}_evidence" not in mongo.client.list_database_names()
+    assert counts() == before
+
+
+def test_evidence_command_line():
+    assert "--only" in run_ok("etl/evidence.py", "--help").stdout
+    assert run("etl/evidence.py", "--only", "everything").returncode != 0
 
 
 def test_load_test_command_line():
