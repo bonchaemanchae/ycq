@@ -1,10 +1,14 @@
 """MongoDB loading, validators and reconciliation."""
+import sys
 from datetime import datetime, timezone
 
 import pytest
 from pymongo.errors import DuplicateKeyError, WriteError
 
-from conftest import run, run_ok
+from conftest import ROOT, run, run_ok
+
+sys.path.insert(0, str(ROOT / "etl"))
+import load_mongo  # noqa: E402
 
 MONTHS = ("2026-01", "2026-02", "2026-03")
 
@@ -62,10 +66,10 @@ def edit_destination(coll, field, value):
 
 @pytest.mark.parametrize("collection, edit, field, value", [
     # values the dashboard and flow explorer show, not just counts
-    ("zone_activity_timeseries", edit_hourly, "averageFare", 999.0),
+    ("zone_activity_timeseries", edit_hourly, "distanceSum", 999.0),
     ("zone_activity_timeseries", edit_hourly, "fareSum", 12345.0),
     ("zone_activity_daily", edit_summary, "pickups", 999),
-    ("borough_activity_hourly", edit_summary, "averageFare", 999.0),
+    ("borough_activity_hourly", edit_summary, "durationSumSec", 999.0),
     ("origin_destination_snapshots", edit_destination, "averageDurationSec", 1.0),
     ("origin_destination_snapshots", edit_destination, "share", 0.5),
 ])
@@ -76,6 +80,42 @@ def test_tampered_value_is_detected(mongo, collection, edit, field, value):
     assert "FAILED" in result.stdout
     run_ok("etl/load_mongo.py", "--month", "2026-01")
     assert "PASSED" in run_ok("etl/reconcile.py", "--month", "2026-01").stdout
+
+
+ACTIVITY = ("zone_activity_timeseries", "zone_activity_daily", "borough_activity_hourly")
+
+
+def test_activity_fields_have_one_type_in_every_document(mongo):
+    """A field that is null in one document and a number in the next closes a
+    time-series bucket, so activity documents hold sums and counts only."""
+    fields = list(load_mongo.hourly_fields(0, 0, 0, 0, 0, 0, 0, 0))
+    assert not [f for f in fields if f.startswith("average")]
+    for name in ACTIVITY:
+        assert mongo[name].count_documents({}) > 0
+        assert mongo[name].count_documents({"$or": [{f: None} for f in fields]}) == 0, name
+        assert mongo[name].count_documents({"averageFare": {"$exists": True}}) == 0, name
+
+
+def test_collections_with_stored_averages_are_rebuilt(mongo):
+    """A database loaded before the averages were left out: the collections
+    are dropped, load_all.py sees their months missing and loads them again,
+    and no time-series bucket is closed by a change of type."""
+    old = dict(mongo["zone_activity_daily"].find_one({}, {"_id": 0}), averageFare=None)
+    for name in ACTIVITY:
+        mongo[name].delete_many({})
+    mongo["zone_activity_timeseries"].insert_one({**old, "timestamp": datetime(2026, 1, 5, 13, tzinfo=timezone.utc),
+                                                  "localHour": 8})
+    mongo["zone_activity_daily"].insert_one(old)
+    try:
+        assert load_mongo.drop_old_layouts(mongo) == ["zone_activity_timeseries", "zone_activity_daily"]
+        assert load_mongo.drop_old_layouts(mongo) == []
+    finally:
+        load_mongo.ensure_collections(mongo)
+        for month in ("2026-01", "2026-02", "2026-03"):
+            run_ok("etl/load_mongo.py", "--month", month)
+            assert "PASSED" in run_ok("etl/reconcile.py", "--month", month).stdout
+    stats = mongo.command("collStats", "zone_activity_timeseries")["timeseries"]
+    assert stats["bucketCount"] > 0 and stats.get("numBucketsClosedDueToSchemaChange", 0) == 0
 
 
 def test_summary_validators_and_unique_keys(mongo):

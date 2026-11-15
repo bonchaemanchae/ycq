@@ -3,9 +3,9 @@
     python reconcile.py --month 2026-01
 
 Hourly zone activity: the document count, total pickups and drop-offs, and
-every number in every zone-hour document (pickups, drop-offs, imbalance, the
-fare, distance and duration sums and counts, and the three averages), each
-recomputed from zone_hour_observation.
+every number in every zone-hour document (pickups, drop-offs, imbalance, and
+the fare, distance and duration sums and counts), each recomputed from
+zone_hour_observation.
 
 Pre-summed activity (one document per zone and day, and per borough and
 hour): the same numbers, each document recomputed with load_mongo.py's

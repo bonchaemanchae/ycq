@@ -184,11 +184,26 @@ same on each:
 | `zone_activity_daily` | zone and day | 23,670 | the summary (map, totals, zone table) |
 | `borough_activity_hourly` | borough and hour | 12,954 | activity over time, weekdays |
 
-Over three months this takes each question from about 2 seconds to under 50
-ms, with the same answer. Every response says which collection answered
-(`source`) and how long it took (`queryMs`), and the page shows it under each
-chart. The loader builds the two pre-summed collections with the others, and
-reconciliation checks every field of every document against PostgreSQL.
+Every response says which collection answered (`source`) and how long it took
+(`queryMs`), and the page shows it under each chart. The loader builds the two
+pre-summed collections with the others, and reconciliation checks every field
+of every document against PostgreSQL.
+
+Activity documents hold sums and counts only (`fareSum`, `fareTripCount` and
+so on); the API divides them for whatever it adds up. They used to store the
+three averages too, which were `null` for an hour without trips. In a
+time-series collection a field that is `null` in one document and a number in
+the next closes the bucket, so the three months sat in 169,166 buckets of
+about 3 measurements each, and reading them was the slowest thing in the app.
+Without the averages they fit in 1,052 buckets, none closed by a change of
+type. On the same laptop the benchmark's three-month questions on the time
+series went from 1,787 and 1,919 ms to 62 and 76 ms, and the hourly map under
+80 simultaneous users from 58 failed requests to none.
+
+A database loaded with the old layout is rebuilt by itself: the loader drops
+the three activity collections if they still hold averages
+(`drop_old_layouts` in `etl/load_mongo.py`) and loads them again from
+PostgreSQL, about 40 seconds for three months.
 
 ### Saved views
 

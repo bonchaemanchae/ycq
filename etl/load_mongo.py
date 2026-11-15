@@ -46,7 +46,12 @@ ISO_DAY_OF_WEEK = {"bsonType": "int", "minimum": 1, "maximum": 7}
 ZONE_ID = {"bsonType": "int", "minimum": 1, "maximum": 265}
 
 # The numbers in every zone activity document, hourly or pre-summed
-# (hourly_fields below).
+# (hourly_fields below): sums and counts only, each field one type in every
+# document. Averages are left out. They are a sum over a count, which the
+# dashboard works out for whatever it adds up, and an hour without trips has
+# none: stored as null beside numbers, the change of type made MongoDB close
+# a time-series bucket nearly every time (about 3 measurements a bucket
+# where 540 fit, and the three-month summary seven times slower).
 ACTIVITY_REQUIRED = ["pickups", "dropoffs", "imbalance", "fareSum", "fareTripCount"]
 ACTIVITY_NUMBERS = {
     "pickups": {"bsonType": "int", "minimum": 0},
@@ -54,14 +59,12 @@ ACTIVITY_NUMBERS = {
     "imbalance": {"bsonType": "int"},
     "fareSum": {"bsonType": NUM, "minimum": 0},
     "fareTripCount": {"bsonType": "int", "minimum": 0},
-    "averageFare": {"bsonType": NUM_OR_NULL},
     "distanceSum": {"bsonType": NUM},
     "distanceTripCount": {"bsonType": "int", "minimum": 0},
-    "averageDistance": {"bsonType": NUM_OR_NULL},
     "durationSumSec": {"bsonType": NUM},
     "durationTripCount": {"bsonType": "int", "minimum": 0},
-    "averageDurationSec": {"bsonType": NUM_OR_NULL},
 }
+STORED_AVERAGE = "averageFare"   # in every activity document until they were left out
 
 
 def meta_schema(**properties) -> dict:
@@ -165,7 +168,23 @@ VIEWS_SCHEMA = {
 }
 
 
+def drop_old_layouts(db) -> list[str]:
+    """Drop the activity collections that still hold stored averages, so the
+    loader rebuilds them from PostgreSQL (load_all.py loads any month that is
+    missing from one). A time-series collection keeps its badly filled
+    buckets even when its documents are replaced, so it has to start again.
+    Returns the names dropped."""
+    dropped = []
+    for name in (HOURLY, DAILY, BOROUGH_HOURLY):
+        if STORED_AVERAGE in (db[name].find_one() or {}):
+            db.drop_collection(name)
+            dropped.append(name)
+    return dropped
+
+
 def ensure_collections(db) -> None:
+    if dropped := drop_old_layouts(db):
+        print(f"dropped to rebuild without stored averages: {', '.join(dropped)}")
     existing = set(db.list_collection_names())
     # MongoDB 8.0 refuses validators on time-series collections, so
     # HOURLY_SCHEMA is checked as a $jsonSchema query after each load instead.
@@ -259,13 +278,10 @@ def hourly_fields(pu, do, fare_sum, fare_n, dist_sum, dist_n, dur_sum, dur_n) ->
         "imbalance": pu - do,
         "fareSum": float(fare_sum),
         "fareTripCount": fare_n,
-        "averageFare": avg(fare_sum, fare_n),
         "distanceSum": float(dist_sum),
         "distanceTripCount": dist_n,
-        "averageDistance": avg(dist_sum, dist_n),
         "durationSumSec": float(dur_sum),
         "durationTripCount": dur_n,
-        "averageDurationSec": avg(dur_sum, dur_n),
     }
 
 
