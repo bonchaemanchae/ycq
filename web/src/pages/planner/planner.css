@@ -1,10 +1,15 @@
 /* Allocation Planner only. Shared colours and controls are in src/styles.css. */
 
-.planner-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
-@media (max-width: 1000px) { .planner-layout { grid-template-columns: minmax(0, 1fr); } }
-.planner-main { min-width: 0; }
-.planner-side { position: sticky; top: 76px; }
-@media (max-width: 1000px) { .planner-side { position: static; } }
+/* Saved plans: plans on the left, the chosen plan's versions on the right */
+.saved-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .saved-layout { grid-template-columns: minmax(0, 1fr); } }
+
+/* advanced settings */
+.advanced { margin-bottom: 4px; border: 1px dashed var(--line-strong); border-radius: 12px; padding: 10px 14px; }
+.advanced[open] { border-style: solid; background: #fcfbf8; }
+.advanced summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.advanced[open] summary { margin-bottom: 12px; }
+.advanced .form-grid { margin-bottom: 14px; }
 
 .inline-form { display: flex; gap: 6px; margin-bottom: 12px; }
 .inline-form input { flex: 1; min-width: 0; }
@@ -34,10 +39,6 @@
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
 .form-grid .field { margin-bottom: 0; }
 .field > span { font-size: 12px; font-weight: 600; color: #4a4944; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { border-radius: 999px; padding: 5px 12px; font-size: 13px; }
-.chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
-.chip.on:hover:not(:disabled) { background: #33332f; border-color: #33332f; }
 .weights { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 20px; }
 .weight { display: grid; grid-template-columns: 10px 1fr 90px 64px; align-items: center; gap: 8px; }
 .weight-label { font-size: 13px; }
@@ -77,6 +78,9 @@
 .alloc tr.edited { background: #fffbea; }
 .alloc tr.focus { box-shadow: inset 3px 0 0 var(--yellow-dark); background: var(--yellow-soft); }
 .zone-name { font-weight: 600; }
+.why { font-size: 12px; color: #6b5300; margin: 1px 0 1px; }
+.zone-link { border: none; background: none; padding: 0; text-align: left; text-decoration: underline dotted #b9b6ac; text-underline-offset: 3px; }
+.zone-link:hover:not(:disabled) { background: none; text-decoration-color: var(--ink); }
 .score { display: flex; align-items: center; gap: 8px; min-width: 130px; }
 .score-bar { flex: 1; display: flex; height: 8px; border-radius: 4px; background: #eeece5; overflow: hidden; min-width: 70px; }
 .score-bar span { height: 100%; }
@@ -88,10 +92,10 @@
 .add-zone select { max-width: 100%; }
 
 /* map */
-.planner-split { grid-template-columns: minmax(0, 1fr) 320px; }
-@media (max-width: 1200px) { .planner-split { grid-template-columns: minmax(0, 1fr); } }
-.map-col .map { height: 440px; }
-.map-col { position: sticky; top: 76px; }
+.planner-split { grid-template-columns: minmax(0, 1fr) clamp(340px, 28vw, 620px); }
+@media (max-width: 1250px) { .planner-split { grid-template-columns: minmax(0, 1fr); } }
+.map-col .map { height: clamp(380px, 52vh, 900px); }
+.planner-flows { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fcfbf8; }
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
 .ramp { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(230, 160, 0, 0.15), rgba(230, 160, 0, 1)); }
 
@@ -106,16 +110,17 @@
   background: var(--ink); color: #fff; border-radius: var(--radius); padding: 10px 12px 10px 16px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
-.save-status { flex: 1 1 260px; font-size: 13px; color: #ffcdc7; }
+.save-label { font-weight: 700; color: var(--yellow); }
+.save-status { flex: 1 1 100%; font-size: 12px; color: #ffcdc7; }
 .save-status.ready { color: #9de8bc; }
-.save-bar input { flex: 1 1 220px; background: #2c2c29; border-color: #45453f; color: #fff; }
+.save-bar input, .save-bar select { flex: 1 1 200px; background: #2c2c29; border-color: #45453f; color: #fff; }
+.save-bar select { flex: 0 1 240px; }
 .save-bar input::placeholder { color: #9a9990; }
 
 /* PostgreSQL vs MongoDB */
 .queries { margin-top: 8px; }
 .queries summary { cursor: pointer; color: #2b5fb8; margin-bottom: 8px; }
 .queries pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; }
-code { background: #f0eee7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 /* before the first preview */
 .how .steps { margin: 0 0 12px; padding-left: 20px; }
@@ -123,3 +128,40 @@ code { background: #f0eee7; padding: 1px 5px; border-radius: 4px; font-size: 12p
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0 0 14px 20px; }
 .metric { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
 .metric .dot { margin-right: 6px; }
+
+/* choosing the shift on the week (WeekGrid.tsx) */
+.week-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); user-select: none; }
+.week-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+.week-top { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.week-top .link { font-size: 13px; padding: 0 2px; }
+.week-grid .dash-grid { table-layout: fixed; width: 100%; }
+.week-grid .dash-grid th { padding: 3px 1px; font-size: 10px; text-align: center; color: var(--muted); font-weight: 600; }
+.week-grid .dash-grid tbody th { text-align: left; width: 38px; }
+.week-grid .dash-grid td { padding: 0; height: 24px; border: 1px solid var(--surface); cursor: pointer; }
+.week-grid .dash-grid tbody tr:hover { background: none; }
+.week-grid .dash-grid td:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
+.week-grid .dash-grid td.in-shift { box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* status of the allocation and the score legend */
+.plan-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-bottom: 14px; font-size: 13px; color: #4a4944; }
+.plan-status strong { padding: 2px 10px; border-radius: 999px; }
+.plan-status.good strong { background: var(--green-soft); color: var(--green); }
+.plan-status.bad strong { background: var(--red-soft); color: var(--red); }
+.score-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-bottom: 8px; }
+.score-legend .dot { vertical-align: -1px; }
+
+/* what the dashboard handed over */
+.handoff {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-bottom: 16px;
+  padding: 10px 14px; border-radius: 12px; background: var(--yellow-soft); border: 1px solid #f0dc8a;
+}
+.handoff > span { flex: 1 1 360px; }
+.handoff a { font-weight: 600; color: var(--ink); }
+.watched { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 10px 12px; border: 1px dashed var(--ink); border-radius: 12px; }
+.watched-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+.watched-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.watched-item.out strong { color: var(--red); }
+.watched-name { font-weight: 650; color: var(--ink); padding: 0; }
+.watched-add { padding: 2px 10px; font-size: 12px; margin-left: 4px; }
+.alloc tr.watched-row td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
+.tag.watch { background: var(--ink); color: var(--yellow); }

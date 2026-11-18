@@ -16,9 +16,14 @@ export type SavedView = {
 export type ViewState = { filters: Record<string, unknown>; widgets: Record<string, unknown> };
 
 type Props = {
-  page: SavedView["page"];
+  page: SavedView["page"];                // the page new views are saved for
+  // pages whose views are listed; the dashboard also lists views saved on the
+  // old Flow Explorer page, which now open its Flow Explorer panel
+  pages?: SavedView["page"][];
   current: ViewState | null;              // what "Save" stores; null while the page loads
-  describe: (filters: Record<string, unknown>) => string;
+  // what "Save changes" stores for a view of another page (null: can't update it now)
+  currentFor?: (view: SavedView) => ViewState | null;
+  describe: (filters: Record<string, unknown>, page: SavedView["page"]) => string;
   onOpen: (view: SavedView) => void;
 };
 
@@ -38,8 +43,9 @@ const same = (a: unknown, b: unknown): boolean => {
 
 // Saved views: the user's own filter sets for one page, kept in MongoDB
 // (saved_analysis_views). Create, open, update, rename and delete.
-export default function SavedViews({ page, current, describe, onOpen }: Props) {
+export default function SavedViews({ page, pages = [page], current, currentFor, describe, onOpen }: Props) {
   const [views, setViews] = useState<SavedView[] | null>(null);
+  const [shown, setShown] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -48,10 +54,12 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = () => api<SavedView[]>(`/views?page=${page}`).then(setViews);
+  const listed = pages.join(",");
+  const load = () => api<SavedView[]>(pages.length === 1 ? `/views?page=${pages[0]}` : "/views")
+    .then((all) => setViews(all.filter((v) => pages.includes(v.page))));
   useEffect(() => {
     load().catch((e: Error) => setError(e.message));
-  }, [page]);
+  }, [listed]);
 
   // Every change goes through here: one at a time, errors shown above the list.
   const run = async (action: () => Promise<void>) => {
@@ -76,6 +84,7 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
       replace(v);
       setOpenId(v._id);
       setName("");
+      setShown(true);
     });
   };
   const open = (v: SavedView) => {
@@ -94,7 +103,8 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
       throw e;
     }
   };
-  const update = (v: SavedView) => run(() => change(v, current!));
+  const stateOf = (v: SavedView) => (v.page === page ? current : currentFor?.(v) ?? null);
+  const update = (v: SavedView) => run(() => change(v, stateOf(v)!));
   const rename = (v: SavedView) => run(async () => {
     await change(v, { name: renameTo });
     setRenaming(null);
@@ -106,27 +116,31 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
     setConfirmDelete(null);
   });
 
-  const changed = (v: SavedView) =>
-    !!current && !(same(current.filters, v.filters) && same(current.widgets, v.widgets ?? {}));
+  const changed = (v: SavedView) => {
+    const now = stateOf(v);
+    return !!now && !(same(now.filters, v.filters) && same(now.widgets, v.widgets ?? {}));
+  };
 
   return (
     <div className="card saved-views">
-      <div className="card-head">
-        <div className="card-title">
-          Saved views <span className="muted small">yours only, kept in MongoDB</span>
+      <div className="saved-bar">
+        <div className="saved-title">
+          <span className="card-title">Saved views</span>
+          <span className="card-sub">Name what you are looking at to come back to it. Yours only, kept in MongoDB.</span>
         </div>
+        <form className="saved-form" onSubmit={save}>
+          <input placeholder="e.g. JFK weekday evenings" value={name} maxLength={100}
+                 onChange={(e) => setName(e.target.value)} disabled={!current} />
+          <button className="primary" disabled={busy || !current || !name.trim()}>Save view</button>
+        </form>
+        <button className="link" onClick={() => setShown(!shown)} disabled={!views}>
+          {shown ? "Hide my views" : `My views (${views?.length ?? "…"})`}
+        </button>
       </div>
-
-      <form className="saved-form" onSubmit={save}>
-        <input placeholder="Name the current view, e.g. Weekday mornings" value={name} maxLength={100}
-               onChange={(e) => setName(e.target.value)} disabled={!current} />
-        <button className="primary" disabled={busy || !current || !name.trim()}>Save view</button>
-      </form>
       {error && <div className="alert error"><span>{error}</span></div>}
 
-      {views === null && !error && <p className="muted small">Loading…</p>}
-      {views?.length === 0 && <p className="muted small">No saved views yet. Set the page up, name it and save.</p>}
-      {!!views?.length && (
+      {shown && views?.length === 0 && <p className="muted small saved-empty">No saved views yet. Set the page up, name it and save.</p>}
+      {shown && !!views?.length && (
         <ul className="saved-list">
           {views.map((v) => {
             const isOpen = v._id === openId;
@@ -144,7 +158,7 @@ export default function SavedViews({ page, current, describe, onOpen }: Props) {
                       {v.name}
                       {isOpen && <span className="tag">{changed(v) ? "open, changed" : "open"}</span>}
                     </span>
-                    <span className="muted small">{describe(v.filters)}</span>
+                    <span className="muted small">{describe(v.filters, v.page)}</span>
                   </button>
                 )}
 

@@ -1,6 +1,6 @@
 """The pages' filters, defined once.
 
-The Activity Dashboard reads its filters from query parameters
+The Analytical Dashboard reads its filters from query parameters
 (api/dashboard.py) and the Flow Explorer its choices (api/flows.py); a saved
 view stores either page's (api/saved_views.py), and MongoDB's validator for
 saved_analysis_views checks them (etl/load_mongo.py builds it with

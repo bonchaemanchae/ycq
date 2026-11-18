@@ -1,4 +1,4 @@
-"""Activity Dashboard: zone activity from MongoDB.
+"""Analytical Dashboard: zone activity from MongoDB.
 
 Plain functions that take a collection, so the FastAPI routes only parse the
 filters, pick the collection with source(), call one of these and return the
@@ -44,6 +44,10 @@ BOROUGH_HOURLY = "borough_activity_hourly"
 
 # Moving-average window per series bucket: one day of hours, one week of days.
 WINDOW = {"hour": 24, "day": 7}
+
+# A day counts as unusual when its pickups are this far (as a fraction) above
+# or below the median of the same weekday over the chosen dates.
+UNUSUAL = 0.3
 
 SUMS = ("pickups", "dropoffs", "fareSum", "fareTripCount", "distanceSum",
         "distanceTripCount", "durationSumSec", "durationTripCount")
@@ -183,15 +187,21 @@ def series_pipeline(f: SeriesFilters) -> list[dict]:
     """City-wide (or filtered) totals per hour or per day, oldest first, with a
     moving average of pickups over this point and the previous ones
     (24 hours or 7 days). Hours are grouped by their UTC instant, so the
-    23-hour day in March stays in order."""
+    23-hour day in March stays in order.
+
+    Per day, also how the day compares with a typical day of the same
+    weekday: a second $setWindowFields, partitioned by weekday, takes the
+    median of that weekday's pickups over the chosen dates, and `change` is
+    the day's pickups against it (-0.6 = 60% below). The median, not the
+    mean, so one collapsed day doesn't drag its own baseline down."""
     window = WINDOW[f.bucket] - 1
     if f.bucket == "hour":
         key = {"$group": {"_id": "$timestamp", "localDate": {"$first": "$localDate"},
                           "localHour": {"$first": "$localHour"}, **_sum_fields()}}
     else:
         key = {"$group": {"_id": "$localDate", "localDate": {"$first": "$localDate"},
-                          **_sum_fields()}}
-    return [
+                          "isoDayOfWeek": {"$first": "$isoDayOfWeek"}, **_sum_fields()}}
+    stages = [
         match(f),
         key,
         {"$setWindowFields": {
@@ -201,8 +211,20 @@ def series_pipeline(f: SeriesFilters) -> list[dict]:
                 "movingAverageDropoffs": {"$avg": "$dropoffs", "window": {"documents": [-window, 0]}},
             },
         }},
-        {"$sort": {"_id": 1}},
     ]
+    if f.bucket == "day":
+        stages += [
+            {"$setWindowFields": {
+                "partitionBy": "$isoDayOfWeek",
+                "output": {"typicalPickups": {"$median": {"input": "$pickups", "method": "approximate"},
+                                              "window": {"documents": ["unbounded", "unbounded"]}}},
+            }},
+            {"$set": {"change": {"$cond": [
+                {"$gt": ["$typicalPickups", 0]},
+                {"$subtract": [{"$divide": ["$pickups", "$typicalPickups"]}, 1]},
+                None]}}},
+        ]
+    return stages + [{"$sort": {"_id": 1}}]
 
 
 def weekday_pipeline(f: ActivityFilters) -> list[dict]:
@@ -305,7 +327,9 @@ def summary(coll: Collection, f: ActivityFilters, names: dict[int, str]) -> dict
 
 
 def series(coll: Collection, f: SeriesFilters) -> dict:
-    """Pickups and drop-offs per hour or day, with moving averages."""
+    """Pickups and drop-offs per hour or day, with moving averages. Per day,
+    also the typical day of that weekday and the change against it, and the
+    unusual days: those at least UNUSUAL away from typical, largest first."""
     points = []
     for p in coll.aggregate(series_pipeline(f)):
         point = {"localDate": p["localDate"]}
@@ -318,8 +342,15 @@ def series(coll: Collection, f: SeriesFilters) -> dict:
             "movingAverageDropoffs": round(p["movingAverageDropoffs"], 1),
             "averageFare": _ratio(p["fareSum"], p["fareTripCount"]),
         })
+        if f.bucket == "day":
+            point["isoDayOfWeek"] = p["isoDayOfWeek"]
+            point["typicalPickups"] = round(p["typicalPickups"], 1)
+            point["change"] = None if p["change"] is None else round(p["change"], 3)
         points.append(point)
-    return {"bucket": f.bucket, "window": WINDOW[f.bucket], "points": points}
+    unusual = sorted((p for p in points if p.get("change") is not None and abs(p["change"]) >= UNUSUAL),
+                     key=lambda p: -abs(p["change"]))
+    return {"bucket": f.bucket, "window": WINDOW[f.bucket], "points": points,
+            "unusualThreshold": UNUSUAL, "unusualDays": [p["localDate"] for p in unusual]}
 
 
 def weekdays(coll: Collection, f: ActivityFilters) -> dict:

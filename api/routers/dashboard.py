@@ -1,4 +1,4 @@
-"""Activity Dashboard routes. The MongoDB pipelines live in api/dashboard.py.
+"""Analytical Dashboard routes. The MongoDB pipelines live in api/dashboard.py.
 
 Served at /dashboard/... here and at /api/dashboard/... from the website.
 Every activity route takes the same filters as query parameters, named like a

@@ -42,8 +42,9 @@ quicker first try, set `YCQ_MONTHS=2026-01` in `.env`. Then open:
 
 - **http://localhost:8080**, the website. Log in as `admin@ycq.local`,
   `analyst1@ycq.local` or `analyst2@ycq.local` with the passwords you put in
-  `.env`. The header should read
-  *PostgreSQL up · MongoDB up · months: 2026-01, ...*
+  `.env`. The top bar should read *Data: Jan–Mar 2026* (or the months you
+  loaded). As an admin, the Administration page shows whether both databases
+  are up.
 - **http://localhost:8000/docs**, the API, where you can try every route.
   Log in with `POST /auth/login`, then press **Authorize** and paste the token.
 
@@ -126,16 +127,22 @@ changed.
 
 ## Adding your part
 
-Each feature from the report has one backend file and one page:
+The website follows a fleet manager's path: **look** at demand, **understand**
+why some zones run short, then **decide** where to station taxis. A sidebar
+lists the three pages and their sections; the top bar shows the loaded months.
+Administrators also have a **Show database details** switch on the
+Administration page (off by default): on, every page adds which MongoDB
+collection answered each chart and how long it took, and the planner's
+PostgreSQL vs MongoDB check. Analysts never see these.
 
 | Feature (owner) | Backend (FastAPI) | Website (React) | URL |
 |---|---|---|---|
-| Activity Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard` |
-| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/Flows.tsx` | `/flows` |
-| Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner` |
-| Saved Views (Caleb) | `api/routers/saved_views.py` | save and open buttons on the Dashboard and Flow pages | — |
-| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, Users on the Administration page | — |
-| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin` |
+| Analytical Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard/overview`, `/timing` |
+| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard or Planner map | — |
+| Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
+| Saved Views (Caleb) | `api/routers/saved_views.py` | the Saved views bar on the Dashboard | — |
+| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `/admin/users` | — |
+| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/loading`, `/check`, `/benchmarks`, `/users` |
 
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
 in `flows.py` is served at http://localhost:8000/flows/busiest. Get
@@ -150,22 +157,48 @@ calls every route to check it is protected as its list says.
 prefix: `api<MyType>("/flows/busiest")` or `post("/plans", body)`. The
 shared map is `web/src/components/ZoneMap.tsx`; pass
 `values={{ [location_id]: number }}` to colour zones (add `diverging` when
-values can be negative). Charts use Recharts. A brand-new page has to
-be added to `PAGES` in `web/src/App.tsx` to get a tab.
+values can be negative: positive zones are drawn red, negative blue). Charts
+use Recharts. A brand-new page or section has to be added to `NAV` and to the
+routes in `web/src/App.tsx` to appear in the sidebar.
 
-### Activity Dashboard
+### Analytical Dashboard
 
-The landing page. Every part of it follows the same filters: a date range,
-days of the week, a range of hours (22 to 2 wraps past midnight), boroughs,
-and whether the map shows pickups, drop-offs or the imbalance between them.
-It reads MongoDB through these routes (each takes the filters as query
-parameters, named like a saved view's filters):
+The landing page, in two sections. Both follow the same filters: a date range, days of the week, a range of hours
+(22 to 2 wraps past midnight) and boroughs.
+
+| Section | Question | Shows |
+|---|---|---|
+| Overview | Where do people want taxis, and where do taxis run short? | four totals (pickups, drop-offs, average fare, average trip) and one map with a **Demand \| Shortages** switch: by pickups, with every zone ranked beside it with its share of pickups, or by pickups minus drop-offs (red short of taxis, blue piling up), with the zones short of taxis and those with too many. **+** on a zone adds it to the comparison under the map (up to three: median and 90th percentile of hourly pickups, peak hour, fare, trip length); clicking a zone opens the Flow Explorer in the same panel |
+| Timing | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same weekday over the chosen dates (marked on the chart and listed) |
+
+**From the dashboard to the planner.** The filter bar's **Plan … →** button
+opens the Allocation Planner on a shift, already previewed: the filtered
+weekday and hours, or, when the filters don't name one shift, the one chosen
+from the busiest shifts for those filters. It takes the boroughs too, and the
+zones the analyst looked at (opened in the Flow Explorer or compared), which
+the planner highlights with how many taxis each gets, or offers to add. A
+banner in the planner says what came across and links back; the dashboard
+keeps its state for the browser tab, so going back returns to the same view.
+The dashboard starts on every loaded month, the same data the planner learns
+from (`planLink` in `web/src/pages/planner/types.ts`).
+
+Clicking a zone on the Overview map opens the **Flow Explorer**
+beside it: the top 10 destinations of trips from that zone, drawn as lines on
+the same map, for a month, weekday or weekend, and time band (the snapshot
+closest to the filters, which the analyst can change), and optionally the same
+slice across every month. It explains a shortage: from JFK, most trips go to
+Manhattan, so JFK's taxis leave and don't come back on their own. The
+Allocation Planner opens the same panel for a zone in the plan, at the plan's
+day and the hour being edited.
+
+The dashboard reads MongoDB through these routes (each takes the filters as
+query parameters, named like a saved view's filters):
 
 | Route | What it returns | MongoDB features |
 |---|---|---|
 | `GET /dashboard` | Totals and every zone with its rank, share and imbalance (map, tables) | `$facet`, `$setWindowFields` (`$rank`, window `$sum`) |
-| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average | `$setWindowFields` (window `$avg`) |
-| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour | `$facet`, two-stage `$group` |
+| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average; per day, a typical day of the same weekday and the unusual days | `$setWindowFields` (window `$avg`; window `$median` partitioned by weekday) |
+| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour (the Allocation Planner's week grid, where the shift is chosen) | `$facet`, two-stage `$group` |
 | `GET /dashboard/compare` | Up to three zones side by side: median and 90th percentile of hourly pickups, peak hour | `$median`, `$percentile` |
 | `GET /dashboard/context` | Loaded date range, latest import and your recent plans (PostgreSQL) | — |
 
@@ -181,11 +214,12 @@ same on each:
 | Collection | One document per | Documents (3 months) | Used for |
 |---|---|---|---|
 | `zone_activity_timeseries` | zone and hour (time series) | 567,817 | the summary when hours are filtered, any question about chosen zones, comparing zones |
-| `zone_activity_daily` | zone and day | 23,670 | the summary (map, totals, zone table) |
+| `zone_activity_daily` | zone and day | 23,670 | the summary (map, totals, ranked zones) |
 | `borough_activity_hourly` | borough and hour | 12,954 | activity over time, weekdays |
 
 Every response says which collection answered (`source`) and how long it took
-(`queryMs`), and the page shows it under each chart. The loader builds the two
+(`queryMs`); an admin with **Show database details** on sees it under each
+chart. The loader builds the two
 pre-summed collections with the others, and reconciliation checks every field
 of every document against PostgreSQL.
 
@@ -218,9 +252,9 @@ PostgreSQL, about 40 seconds for three months.
 
 ### Saved views
 
-The Activity Dashboard and Flow Explorer each have a **Saved views** panel:
-name the page as it is and save it, open it again later, save changes into
-it, rename it or delete it. Views are each user's own and live in MongoDB
+The Analytical Dashboard has a **Saved views** bar: name what you are looking
+at and save it, open it again later, save changes into it, rename it or
+delete it. Views are each user's own and live in MongoDB
 (`saved_analysis_views`), so this is the app's CRUD on the NoSQL side, as
 plans are on the PostgreSQL side.
 
@@ -237,8 +271,9 @@ dashboard's date range, weekdays, hours, boroughs and metric, or the Flow
 Explorer's origin zone, month, day type and time of day. A view holds only
 its page's filters, so it always reopens as saved, and MongoDB's
 `$jsonSchema` validator is generated from the same definition. `widgets` is
-free-form: the dashboard keeps its compared zones and hourly or daily chart
-there, the Flow Explorer whether the month comparison is open. A zone or
+free-form: the dashboard keeps its section, compared zones, hourly or daily
+chart and the open Flow Explorer slice there. Views saved before the Flow
+Explorer became a panel (page `flows`) still open, into that panel. A zone or
 borough is checked against PostgreSQL before a view is saved, since MongoDB
 can't hold a foreign key into it.
 
@@ -331,8 +366,8 @@ a copy of the latest hash.
 
 ### See what's loaded
 
-- **Website:** the header lists the loaded months, and the Administration page
-  shows rows read, accepted and rejected per month.
+- **Website:** the top bar lists the loaded months, and Administration → Data
+  loading shows rows read, accepted and rejected per month.
 - **Loader output:** `docker compose logs loader` shows each month's counts and
   whether reconciliation **PASSED**.
 - **PostgreSQL shell**, no password needed:
@@ -475,7 +510,7 @@ filtered and sorted from `od_summary` in PostgreSQL against one embedded
 document in `origin_destination_snapshots`. It records a cold run, the median
 and 95th percentile of the timed runs, data and index size, load time and each
 query plan, and saves them to `benchmark_run` only if every store gave the same
-answers. Questions 6 and 7 are the Activity Dashboard's heaviest over all three
+answers. Questions 6 and 7 are the Analytical Dashboard's heaviest over all three
 months (every zone's totals, and pickups by weekday and hour), on the app's
 real stores: `zone_hour_observation`, the hourly time series, and the
 pre-summed collection the dashboard reads. `--explain-summary` prints

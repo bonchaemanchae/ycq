@@ -25,9 +25,17 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
   };
 
   return (
+    <div className="login-page">
     <form className="card login" onSubmit={submit}>
+      <div className="brand">
+        <span className="brand-mark">YC</span>
+        <div>
+          <div className="brand-name">Yellow Cab Query</div>
+          <div className="brand-sub">Fleet planning on NYC taxi data</div>
+        </div>
+      </div>
       <h1>Log in</h1>
-      <p className="muted">Yellow Cab Query is for fleet analysts and administrators.</p>
+      <p className="muted">See where taxis are needed, why they run out, and plan where to station your fleet.</p>
       {error && <div className="alert error">{error}</div>}
       <label>
         <span>Email</span>
@@ -41,5 +49,6 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
       </label>
       <button className="primary" type="submit" disabled={busy}>{busy ? "Logging in…" : "Log in"}</button>
     </form>
+    </div>
   );
 }

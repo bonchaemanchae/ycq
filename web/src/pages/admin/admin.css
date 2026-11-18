@@ -132,21 +132,6 @@ details.more-card[open] > summary.card-title { margin-bottom: 12px; }
 details pre.example { margin-top: 8px; }
 .pager { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 
-/* section jump links, kept under the sticky site header */
-.section-nav {
-  position: sticky; top: 64px; z-index: 900;
-  display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; margin: 0 0 16px;
-  background: rgba(244, 243, 239, 0.94); backdrop-filter: blur(6px);
-  border: 1px solid var(--line); border-radius: var(--radius);
-}
-.section-nav button { padding: 5px 12px; border-radius: 999px; border-color: var(--line); font-size: 13px; }
-.section-nav button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
-.anchor { scroll-margin-top: 130px; }
-@media (max-width: 800px) {
-  .section-nav { position: static; }
-  .anchor { scroll-margin-top: 120px; }
-}
-
 /* benchmarks: one colour per store, used for both swatches and bars */
 .admin {
   --store-postgres: #2a78d6;
@@ -173,3 +158,15 @@ details pre.example { margin-top: 8px; }
 pre.plan { max-height: 320px; white-space: pre; }
 td .swatch { vertical-align: -1px; }
 .tag.good { background: var(--green-soft); color: #14653c; }
+
+/* page title with the database status and the details switch */
+.admin-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 24px; }
+.db-details { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+
+/* imports table: one row per file, the stacked bar inline */
+.imports tr.pickable { cursor: pointer; }
+.imports tr.selected { background: var(--yellow-soft); }
+.imports tr.selected:hover { background: var(--yellow-soft); }
+.imports .bar-col { width: 34%; min-width: 180px; }
+.imports .stack { display: flex; height: 14px; }
+.month-pick { white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); padding: 0; }

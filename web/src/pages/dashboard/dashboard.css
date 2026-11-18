@@ -1,4 +1,4 @@
-/* Activity Dashboard only. Shared colours and controls are in src/styles.css. */
+/* Analytical Dashboard only. Shared colours and controls are in src/styles.css. */
 
 /* filters */
 .dash-filters { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-start; }
@@ -8,24 +8,90 @@
 .dash-pills { display: flex; flex-wrap: wrap; gap: 4px; }
 .dash-pills button { padding: 4px 11px; border-radius: 999px; font-size: 13px; }
 .dash-pills button.active:hover:not(:disabled) { background: #33332f; color: #fff; border-color: #33332f; }
+.dash-action { margin-left: auto; align-self: flex-end; }
 
 /* totals */
-.dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 4px; }
-.dash-tile { padding: 12px 14px; margin-bottom: 12px; }
+.dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 4px; }
+.dash-tile { padding: 14px 16px; margin-bottom: 12px; }
 .dash-tile-label { font-size: 12px; color: var(--muted); font-weight: 600; }
-.dash-tile-value { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; font-variant-numeric: tabular-nums; }
+.dash-tile-value { font-size: 24px; font-weight: 750; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+
+/* map with the ranked zones or the Flow Explorer beside it */
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 26vw, 560px); gap: 16px; align-items: start; }
+/* the map grows with the window: taller on tall or zoomed-out screens */
+.map-card .map { height: clamp(460px, 64vh, 1100px); }
+@media (max-width: 1150px) { .map-layout { grid-template-columns: minmax(0, 1fr); } }
+.map-card .card-head { flex-wrap: wrap; justify-content: flex-start; }
+.map-card .map-legend { margin-left: auto; }
+.map-side { position: sticky; top: 72px; max-height: calc(100vh - 88px); overflow-y: auto; }
+@media (max-width: 1150px) { .map-side { position: static; max-height: none; } }
+.map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.ramp { display: inline-block; width: 64px; height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg, rgba(230, 160, 0, 0.15), rgba(230, 160, 0, 1)); }
+.line-swatch { display: inline-block; width: 26px; height: 4px; border-radius: 2px; background: var(--ink); }
+.marked-swatch { display: inline-block; width: 16px; height: 12px; border-radius: 3px; border: 2px dashed var(--ink); }
+
+/* ranked zones (ZoneList.tsx) */
+.zone-list + .zone-list { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.zone-list ol { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.zone-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; border-radius: 10px; }
+.zone-list li:hover { background: #faf9f5; }
+.zone-list li.picked { background: var(--yellow-soft); }
+.zl-open {
+  display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px 6px; border: none; background: none; border-radius: 10px; text-align: left; min-width: 0;
+}
+.zl-open:hover:not(:disabled) { background: none; }
+.zl-rank {
+  width: 24px; height: 24px; border-radius: 50%; background: #f1efe8; display: grid; place-items: center;
+  font-size: 11px; font-weight: 700;
+}
+.zone-list li:first-child .zl-rank { background: var(--yellow); }
+.zl-name { display: flex; flex-direction: column; font-weight: 600; min-width: 0; }
+.zl-value { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-weight: 650; }
+.zl-compare {
+  width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 15px; line-height: 1; margin-right: 4px;
+  color: var(--muted);
+}
+.zl-compare.on { background: var(--ink); border-color: var(--ink); color: var(--yellow); }
+.zone-list > .link { margin-right: 10px; font-size: 13px; }
 
 /* sections */
-.dash-subtitle { font-weight: 650; margin: 4px 0 2px; }
 .dash-note { margin: 8px 0 0; }
 .dash-stale { opacity: 0.5; transition: opacity 0.15s; }
-.dash-imbalance { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
 .dash-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+/* zone comparison */
+.zone-picker { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.zone-picker-form { display: flex; gap: 6px; max-width: 560px; }
+.zone-picker-form select { flex: 1; min-width: 0; }
 
 /* weekday x hour grid */
 .dash-grid { table-layout: fixed; }
 .dash-grid th { padding: 4px 2px; font-size: 10px; text-align: center; }
 .dash-grid tbody th { text-align: left; width: 40px; }
-.dash-grid td { padding: 0; height: 20px; border: 1px solid var(--surface); }
+.dash-grid td { padding: 0; height: 26px; border: 1px solid var(--surface); }
 .dash-grid tbody tr:hover { background: none; }
-.dash-source { margin: 6px 0 0; text-align: right; }
+.dash-grid td.pickable { cursor: pointer; }
+.dash-grid td.pickable:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
+.dash-grid td.picked { outline: 3px solid var(--ink); outline-offset: -3px; }
+.dash-source { margin: 8px 0 0; text-align: right; }
+
+/* opening the planner on a shift */
+.shift-pick {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px;
+  padding: 10px 14px; border-radius: 12px; background: var(--yellow-soft); border: 1px solid #f0dc8a;
+}
+.shift-pick > div { flex: 1 1 280px; }
+
+/* which shift to plan, when the filters don't name one */
+.plan-chooser { border-color: #f0dc8a; }
+.plan-options { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
+.plan-options .suggested-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 14px; border-radius: 12px; min-width: 170px;
+}
+.plan-options .suggested-item:hover:not(:disabled) { border-color: var(--yellow-dark); background: var(--yellow-soft); }
+.plan-options .suggested-when { font-weight: 700; font-variant-numeric: tabular-nums; }
+.plan-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.plan-carried { margin: 12px 0 0; }

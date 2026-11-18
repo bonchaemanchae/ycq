@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { METRICS, type Row, type Settings } from "./types";
+import { METRICS, whyLine, type Row, type Settings } from "./types";
 
 export type TableRow = Row & { final: number; added: boolean };
 
@@ -11,6 +11,8 @@ type Props = {
   onSet: (row: Row, taxis: number) => void;
   onAdd: (row: Row) => void;
   onRemove: (row: Row) => void;
+  onFocus?: (row: Row) => void;   // clicking a zone's name: highlight it and show where its trips go
+  watched?: number[];             // zones brought over from the dashboard
 };
 
 const money = (v: number | null) => (v === null ? "—" : `$${v.toFixed(2)}`);
@@ -31,13 +33,22 @@ function ScoreBar({ row, weights }: { row: Row; weights: Settings }) {
 }
 
 // One hour of the plan: the analyst sets the final taxis for each zone.
-export default function AllocationTable({ rows, candidates, weights, focusId, onSet, onAdd, onRemove }: Props) {
+export default function AllocationTable({ rows, candidates, weights, focusId, onSet, onAdd, onRemove, onFocus,
+                                          watched = [] }: Props) {
   useEffect(() => {
     if (focusId !== null) document.getElementById(`zone-row-${focusId}`)?.scrollIntoView({ block: "nearest" });
   }, [focusId]);
 
   return (
     <div>
+      <div className="score-legend" title="Each zone's score: its percentile within the hour on each measure, times that measure's weight">
+        <span className="muted small">Score:</span>
+        {METRICS.map((m) => (
+          <span key={m.label} className="small" title={m.help}>
+            <span className="dot" style={{ background: m.color }} /> {m.label} ×{weights[m.weight].toFixed(2)}
+          </span>
+        ))}
+      </div>
       <div className="table-wrap">
         <table className="alloc">
           <thead>
@@ -53,19 +64,24 @@ export default function AllocationTable({ rows, candidates, weights, focusId, on
           <tbody>
             {rows.map((r) => (
               <tr key={r.location_id} id={`zone-row-${r.location_id}`}
-                  className={`${r.location_id === focusId ? "focus" : ""} ${r.final !== r.proposed_taxis ? "edited" : ""}`}>
+                  className={`${r.location_id === focusId ? "focus" : ""} ${r.final !== r.proposed_taxis ? "edited" : ""} ${watched.includes(r.location_id) ? "watched-row" : ""}`}>
                 <td className="muted">{r.rank}</td>
                 <td title={`${r.reason} (${r.sample_size.toLocaleString()} pickups in total)`}>
-                  <div className="zone-name">{r.zone_name}</div>
+                  {onFocus
+                    ? <button className="zone-name zone-link" onClick={() => onFocus(r)}
+                              title="Show where trips from this zone go">{r.zone_name}</button>
+                    : <div className="zone-name">{r.zone_name}</div>}
+                  <div className="why">{whyLine(r, weights)}</div>
                   <div className="muted small">
-                    {r.borough} · {r.days} days
+                    {r.borough} · {r.days} days of data
                     {r.added && <span className="tag">added</span>}
+                    {watched.includes(r.location_id) && <span className="tag watch">from the dashboard</span>}
                   </div>
                 </td>
                 <td><ScoreBar row={r} weights={weights} /></td>
                 <td className="num">
                   <div>{r.avg_pickups}</div>
-                  <div className={`small ${r.avg_imbalance > 0 ? "pos" : r.avg_imbalance < 0 ? "neg" : "muted"}`}>
+                  <div className={`small ${r.avg_imbalance > 0 ? "short" : r.avg_imbalance < 0 ? "surplus" : "muted"}`}>
                     {r.avg_imbalance > 0 ? "+" : ""}{r.avg_imbalance} net
                   </div>
                 </td>

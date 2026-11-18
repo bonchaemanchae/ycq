@@ -122,7 +122,7 @@ def latest_benchmark(conn) -> dict:
 
     Each result says which data it measured: Q1 to Q4 use the hourly zone
     summaries, Q5 the Flow Explorer's destination lists, Q6 and Q7 the
-    Activity Dashboard's stores (etl/benchmark.py)."""
+    Analytical Dashboard's stores (etl/benchmark.py)."""
     with conn.cursor(row_factory=dict_row) as cur:
         rows = cur.execute(
             """SELECT store, query_name, runs, cold_ms, median_ms, p95_ms,

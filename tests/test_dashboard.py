@@ -144,6 +144,28 @@ def test_daily_series_and_moving_average(coll, db):
         assert p["movingAveragePickups"] == round(sum(window) / len(window), 1)
 
 
+def test_daily_series_compares_each_day_with_its_weekday(coll):
+    """Each day against the median of the same weekday over the chosen dates;
+    unusual days are those at least UNUSUAL away from it, largest first."""
+    s = dashboard.series(coll, SeriesFilters(dateFrom="2026-01-01", dateTo="2026-03-31"))
+    points = {p["localDate"]: p for p in s["points"]}
+    by_weekday: dict[int, list[int]] = {}
+    for p in s["points"]:
+        by_weekday.setdefault(p["isoDayOfWeek"], []).append(p["pickups"])
+    for p in s["points"]:
+        same_day = by_weekday[p["isoDayOfWeek"]]
+        assert min(same_day) <= p["typicalPickups"] <= max(same_day)
+        if p["typicalPickups"]:
+            assert p["change"] == pytest.approx(p["pickups"] / p["typicalPickups"] - 1, abs=0.001)
+    changes = [abs(points[d]["change"]) for d in s["unusualDays"]]
+    assert changes == sorted(changes, reverse=True)
+    assert all(c >= dashboard.UNUSUAL for c in changes)
+    assert all(abs(p["change"]) < dashboard.UNUSUAL for d, p in points.items()
+               if d not in s["unusualDays"] and p["change"] is not None)
+    hourly = dashboard.series(coll, SeriesFilters(dateFrom="2026-01-05", dateTo="2026-01-05", bucket="hour"))
+    assert hourly["unusualDays"] == [] and "change" not in hourly["points"][0]
+
+
 def test_hourly_series_keeps_the_23_hour_day_in_order(coll):
     points = dashboard.series(coll, SeriesFilters(dateFrom="2026-03-08", dateTo="2026-03-08",
                                                   bucket="hour"))["points"]

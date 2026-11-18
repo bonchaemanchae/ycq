@@ -70,8 +70,16 @@ export type Point = {
   movingAveragePickups: number;
   movingAverageDropoffs: number;
   averageFare: number | null;
+  // per day only: a typical day of this weekday (median over the dates) and
+  // this day's change against it, e.g. -0.6 = 60% below
+  isoDayOfWeek?: number;
+  typicalPickups?: number;
+  change?: number | null;
 };
-export type Series = Answered & { bucket: "hour" | "day"; window: number; points: Point[] };
+export type Series = Answered & {
+  bucket: "hour" | "day"; window: number; points: Point[];
+  unusualThreshold: number; unusualDays: string[];   // largest change first
+};
 
 // GET /dashboard/weekdays
 export type WeekdayRow = {
@@ -125,7 +133,9 @@ export type Context = {
 };
 
 // Query string for the activity routes. Lists repeat their name
-// (weekdays=1&weekdays=2); unset filters are left out.
+// (weekdays=1&weekdays=2); unset filters are left out. The metric only
+// decides how the page colours and ranks zones, so it isn't sent: switching
+// between Overview and Shortages doesn't ask MongoDB again.
 export function toQuery(f: Filters, extra: Record<string, string | number | number[]> = {}) {
   const p = new URLSearchParams();
   if (f.dateFrom) p.set("dateFrom", f.dateFrom);
@@ -134,7 +144,6 @@ export function toQuery(f: Filters, extra: Record<string, string | number | numb
   if (f.hourFrom !== null) p.set("hourFrom", String(f.hourFrom));
   if (f.hourTo !== null) p.set("hourTo", String(f.hourTo));
   f.boroughs.forEach((b) => p.append("boroughs", b));
-  p.set("metric", f.metric);
   for (const [k, v] of Object.entries(extra)) {
     if (Array.isArray(v)) v.forEach((x) => p.append(k, String(x)));
     else p.set(k, String(v));

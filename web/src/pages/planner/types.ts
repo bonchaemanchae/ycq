@@ -128,3 +128,81 @@ export const toRequest = (s: Settings, note?: string) => ({
 
 export const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+// --- handing a shift to the planner --------------------------------------------
+// The dashboard opens the planner on a shift with a link:
+//   /planner/build?dow=4&from=17&to=19&boroughs=Manhattan,Queens&watch=132,186&back=overview
+// With a weekday and hours the planner previews it at once. `watch` lists the
+// zones the analyst looked at on the dashboard (opened or compared), which the
+// planner highlights and offers to add; `back` is the dashboard section to
+// return to.
+
+export type Shift = { dow: number; from: number; to: number };
+
+// Three hours centred on an hour, kept inside the day (the planner's hours
+// can't wrap past midnight).
+export function shiftAround(dow: number, hour: number): Shift {
+  const from = Math.min(Math.max(0, hour - 1), 21);
+  return { dow, from, to: from + 2 };
+}
+
+export function planLink(shift: Shift | null, boroughs: string[], watch: number[] = [], back?: string): string {
+  const p = new URLSearchParams();
+  if (shift) {
+    p.set("dow", String(shift.dow));
+    p.set("from", String(shift.from));
+    p.set("to", String(shift.to));
+  }
+  if (boroughs.length) p.set("boroughs", boroughs.join(","));
+  if (watch.length) p.set("watch", watch.join(","));
+  if (back) p.set("back", back);
+  return `/planner/build?${p.toString()}`;
+}
+
+// The busiest `count` shifts of `length` hours, none overlapping, from a
+// weekday x hour grid of average pickups (GET /dashboard/weekdays).
+export type RankedShift = Shift & { pickups: number };
+export function busiestShifts(grid: { isoDayOfWeek: number; hour: number; averagePickups: number }[],
+                              count: number, length = 3): RankedShift[] {
+  const cell = new Map(grid.map((g) => [`${g.isoDayOfWeek}:${g.hour}`, g.averagePickups]));
+  const windows: RankedShift[] = [];
+  for (let dow = 1; dow <= 7; dow++) {
+    for (let from = 0; from + length <= 24; from++) {
+      let pickups = 0;
+      for (let h = from; h < from + length; h++) pickups += cell.get(`${dow}:${h}`) ?? 0;
+      windows.push({ dow, from, to: from + length - 1, pickups });
+    }
+  }
+  windows.sort((a, b) => b.pickups - a.pickups);
+  const chosen: RankedShift[] = [];
+  for (const w of windows) {
+    if (w.pickups <= 0 || chosen.length === count) break;
+    if (!chosen.some((x) => x.dow === w.dow && x.from <= w.to && w.from <= x.to)) chosen.push(w);
+  }
+  return chosen;
+}
+
+// The end of a shift whose last hour is `to`: 19 ends at 20:00, 23 at midnight.
+export const endLabel = (to: number) => (to === 23 ? "midnight" : hourLabel(to + 1));
+export const shiftLabel = (s: Shift) => `${DAYS[s.dow - 1]} ${hourLabel(s.from)}–${endLabel(s.to)}`;
+
+// --- why a zone was chosen ----------------------------------------------------------
+// The two strongest parts of its score in words, e.g. "Short of taxis (top 5%)
+// · Busy (top 10%)", plus a warning when its demand is uneven week to week.
+// Percentiles are within the hour, among the eligible zones.
+
+const TOP = [[0.95, "top 5%"], [0.9, "top 10%"], [0.75, "top 25%"]] as const;
+const WHY: Record<string, string> = {
+  pct_pickup: "Busy", pct_imbalance: "Short of taxis", pct_consistency: "Steady", pct_fare: "High fares",
+};
+
+export function whyLine(row: Row, weights: Settings): string {
+  const parts = METRICS
+    .map((m) => ({ pct: row[m.pct], weighted: row[m.pct] * weights[m.weight], name: WHY[m.pct] }))
+    .filter((m) => m.pct >= 0.75)
+    .sort((a, b) => b.weighted - a.weighted)
+    .slice(0, 2)
+    .map((m) => `${m.name} (${TOP.find(([t]) => m.pct >= t)![1]})`);
+  if (row.pct_consistency < 0.25) parts.push("Uneven week to week");
+  return parts.length ? parts.join(" · ") : "Good all round";
+}

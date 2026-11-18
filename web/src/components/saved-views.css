@@ -1,19 +1,24 @@
-/* The Saved views panel on the Activity Dashboard and Flow Explorer. */
+/* The Saved views bar on the Analytical Dashboard. */
 
-.saved-form { display: flex; gap: 6px; margin-bottom: 12px; }
+.saved-views { padding: 14px 18px; }
+.saved-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+.saved-title { display: flex; flex-direction: column; flex: 1 1 260px; min-width: 0; }
+.saved-title .card-title { margin: 0; }
+.saved-form { display: flex; gap: 6px; flex: 1 1 340px; }
 .saved-form input { flex: 1; min-width: 0; }
+.saved-empty { margin: 12px 0 0; }
 .saved-list {
-  list-style: none; margin: 0; padding: 0;
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 6px;
+  list-style: none; margin: 14px 0 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 8px;
 }
-.saved-list li { border: 1px solid var(--line); border-radius: 10px; }
+.saved-list li { border: 1px solid var(--line); border-radius: 12px; }
 .saved-list li.open { background: var(--yellow-soft); border-color: #f0dc8a; }
 .saved-item {
   display: grid; gap: 2px; width: 100%; text-align: left;
-  border: none; background: none; padding: 8px 10px 4px; border-radius: 10px;
+  border: none; background: none; padding: 9px 12px 4px; border-radius: 12px;
 }
 .saved-item:hover:not(:disabled) { background: rgba(0, 0, 0, 0.03); }
 .saved-name { font-weight: 600; }
-.saved-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 6px; }
+.saved-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 12px 8px; }
 .saved-actions button:not(.link) { padding: 4px 10px; }
 .saved-list .saved-form { padding: 6px; margin: 0; }

@@ -1,4 +1,4 @@
-import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Legend, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { dayLabel, hourLabel, type Series } from "./types";
 
 type Props = {
@@ -39,6 +39,9 @@ export default function ActivityChart({ series, bucket, onBucket, hourlyAllowed 
             <Line type="monotone" dataKey="dropoffs" name="Drop-offs" stroke="#9a988f" dot={false} strokeWidth={1} />
             <Line type="monotone" dataKey="movingAveragePickups" name="Pickups, moving average"
                   stroke="#1c1c1a" dot={false} strokeWidth={2} />
+            {series.bucket === "day" && data.filter((p) => series.unusualDays.includes(p.localDate)).map((p) => (
+              <ReferenceDot key={p.localDate} x={p.label} y={p.pickups} r={6} fill="#c2382b" stroke="#fff" strokeWidth={2} />
+            ))}
           </LineChart>
         </ResponsiveContainer>
       )}

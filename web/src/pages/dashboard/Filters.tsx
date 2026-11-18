@@ -1,17 +1,19 @@
-import { METRICS, WEEKDAYS, hourLabel, type Filters, type Metric } from "./types";
+import type { ReactNode } from "react";
+import { WEEKDAYS, hourLabel, type Filters } from "./types";
 
 type Props = {
   filters: Filters;
   onChange: (f: Filters) => void;
   boroughs: string[];
   bounds: { dateFrom: string; dateTo: string } | null;   // the loaded date range
+  action?: ReactNode;                                    // e.g. "Plan this shift"
 };
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-// Date range, weekdays, hours of the day, boroughs and what to colour the map
-// by. Every change reloads the page's numbers.
-export default function DashboardFilters({ filters: f, onChange, boroughs, bounds }: Props) {
+// Date range, weekdays, hours of the day and boroughs. They apply to every
+// section of the dashboard; every change reloads its numbers.
+export default function DashboardFilters({ filters: f, onChange, boroughs, bounds, action }: Props) {
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onChange({ ...f, [k]: v });
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const hour = (v: string) => (v === "" ? null : Number(v));
@@ -45,7 +47,7 @@ export default function DashboardFilters({ filters: f, onChange, boroughs, bound
       </div>
 
       <div className="dash-field">
-        <span>Hours (pickup or drop-off time)</span>
+        <span>Hours</span>
         <div className="dash-inline">
           <select value={f.hourFrom ?? ""} onChange={(e) => set("hourFrom", hour(e.target.value))}>
             <option value="">from 00:00</option>
@@ -73,17 +75,7 @@ export default function DashboardFilters({ filters: f, onChange, boroughs, bound
         </div>
       </div>
 
-      <div className="dash-field">
-        <span>Colour the map by</span>
-        <div className="dash-pills">
-          {METRICS.map((m) => (
-            <button key={m.value} title={m.help} className={f.metric === m.value ? "active" : ""}
-                    onClick={() => set("metric", m.value as Metric)}>
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {action && <div className="dash-action">{action}</div>}
     </div>
   );
 }

@@ -73,6 +73,19 @@ export type Compare = {
   destinations: CompareDestination[];
 };
 
+// The time band a local hour falls in (same bands as TIME_BUCKETS).
+export const bucketOfHour = (h: number): TimeBucket =>
+  h < 6 ? "night" : h < 10 ? "am_peak" : h < 16 ? "midday" : h < 20 ? "pm_peak" : "evening";
+
+// The band that covers most of these hours (the first one on a tie).
+export function bucketForHours(hours: number[]): TimeBucket {
+  const counts = new Map<TimeBucket, number>();
+  for (const h of hours) counts.set(bucketOfHour(h), (counts.get(bucketOfHour(h)) ?? 0) + 1);
+  let best: TimeBucket = bucketOfHour(hours[0] ?? 8);
+  for (const t of TIME_BUCKETS) if ((counts.get(t.value) ?? 0) > (counts.get(best) ?? 0)) best = t.value;
+  return best;
+}
+
 export const toParams = (q: Record<string, string | number>) =>
   new URLSearchParams(Object.entries(q).map(([k, v]) => [k, String(v)])).toString();
 

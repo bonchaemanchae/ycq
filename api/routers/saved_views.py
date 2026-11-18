@@ -2,8 +2,9 @@
 
 Served at /views/... here and at /api/views/... from the website. Views live
 in MongoDB (saved_analysis_views); the validator and indexes are created by
-etl/load_mongo.py. The Activity Dashboard and Flow Explorer use them through
-their "Saved views" panel (web/src/components/SavedViews.tsx).
+etl/load_mongo.py. The Analytical Dashboard uses them through its "Saved views"
+bar (web/src/components/SavedViews.tsx); views with page "flows" were saved
+on the old Flow Explorer page and now open its panel on the dashboard.
 
   GET    /views?page=dashboard   your views, newest first (optionally one page's)
   POST   /views                  save {name, page, filters, widgets}
