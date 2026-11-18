@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
-import { api, post, type User } from "../../api";
+import { api, post, roleLabels, type User } from "../../api";
 
 type Account = {
   user_id: number; email: string; display_name: string;
@@ -34,7 +34,7 @@ export default function Users() {
     try {
       const a = await post<Account>("/admin/users", form);
       setForm(NEW_USER);
-      setMessage({ kind: "ok", text: `Added ${a.email} as ${a.roles.join(", ")}.` });
+      setMessage({ kind: "ok", text: `Added ${a.email} as ${roleLabels(a.roles)}.` });
       await load();
     } catch (err) {
       setMessage({ kind: "error", text: (err as Error).message });
@@ -73,7 +73,7 @@ export default function Users() {
         <input placeholder="Name" aria-label="Name" required maxLength={100}
                value={form.display_name} onChange={field("display_name")} />
         <select aria-label="Role" value={form.role} onChange={field("role")}>
-          <option value="analyst">analyst</option>
+          <option value="analyst">fleet manager</option>
           <option value="admin">admin</option>
         </select>
         <input type="password" placeholder="Password, 12+ characters" aria-label="Password" required
@@ -93,7 +93,7 @@ export default function Users() {
                 <tr key={a.user_id}>
                   <td>{a.email}</td>
                   <td>{a.display_name}</td>
-                  <td>{a.roles.join(", ") || "none"}</td>
+                  <td>{roleLabels(a.roles) || "none"}</td>
                   <td>{a.is_active ? "active" : <span className="tag warn">inactive</span>}</td>
                   <td className="num">{a.plans}</td>
                   <td>

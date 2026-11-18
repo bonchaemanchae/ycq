@@ -37,7 +37,7 @@ def list_users(conn=Depends(get_pg)):
 
 @router.post("", status_code=201)
 def create_user(body: NewUser, conn=Depends(get_pg)):
-    """Create an analyst or admin account. 409 if the email is taken or is
+    """Create a fleet manager (role "analyst") or admin account. 409 if the email is taken or is
     one of the default accounts from .env, 422 if the password is refused."""
     try:
         return users.create_user(conn, body.email, body.display_name, body.role, body.password)

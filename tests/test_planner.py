@@ -94,7 +94,7 @@ def test_adding_a_zone_outside_the_proposal(conn, setup):
     results = planner.get_version(conn, owner, plan_id, 1)["results"]
     added = next(r for r in results if r["location_id"] == extra["location_id"] and r["hour"] == 8)
     assert (added["proposed_taxis"], added["final_taxis"]) == (0, 2)
-    assert added["reason"].startswith("added by analyst")
+    assert added["reason"].startswith("added by fleet manager")
 
 
 def test_edit_that_breaks_the_fleet_total_is_refused(conn, setup):

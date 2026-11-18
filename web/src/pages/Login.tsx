@@ -27,7 +27,7 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
   return (
     <form className="card login" onSubmit={submit}>
       <h1>Log in</h1>
-      <p className="muted">Yellow Cab Query is for fleet analysts and administrators.</p>
+      <p className="muted">Yellow Cab Query is for fleet managers and administrators.</p>
       {error && <div className="alert error">{error}</div>}
       <label>
         <span>Email</span>

@@ -1,6 +1,6 @@
 # Yellow Cab Query (YCQ)
 
-A web app for taxi fleet analysts, built on the official NYC TLC yellow taxi
+A web app for taxi fleet managers, built on the official NYC TLC yellow taxi
 trip records for January to March 2026. PostgreSQL + PostGIS is the source of
 truth for trips, zones, users and plans. MongoDB holds hourly zone summaries,
 origin-destination snapshots and saved views. React website, FastAPI backend.
@@ -143,7 +143,7 @@ PostgreSQL with `conn=Depends(get_pg)`, MongoDB with `mongo()` (both from
 `api/db.py`), and the logged-in user with `user: User = Depends(current_user)`.
 Every route shows up at http://localhost:8000/docs where you can try it. A
 brand-new router file has to be added in `api/main.py` to one of `PUBLIC` (no
-login), `ANY_ROLE` (analysts and admins) or `ADMIN_ONLY`; `tests/test_auth.py`
+login), `ANY_ROLE` (fleet managers and admins) or `ADMIN_ONLY`; `tests/test_auth.py`
 calls every route to check it is protected as its list says.
 
 **Website.** Call the backend through `web/src/api.ts` and leave off the `/api`
@@ -291,8 +291,10 @@ a copy of the latest hash.
   for 8 hours; the website keeps it until the tab is closed. The token only
   says who you are: your roles and whether your account still exists are
   checked on every request, so changes apply immediately.
-- **Roles:** analysts use every page except Administration; admins use all of
-  them.
+- **Roles:** fleet managers use every page except Administration; admins use
+  all of them. Inside the database and API the fleet manager role is still
+  called `analyst`, and the two default fleet manager accounts are
+  `analyst1@ycq.local` and `analyst2@ycq.local`.
 - **Database roles:** the API never connects as the database owner. Its
   PostgreSQL login is a member of `ycq_write` (`sql/015`), which can read
   every table but only write `app_user`, `app_user_role` and the four plan

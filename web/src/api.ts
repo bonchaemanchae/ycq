@@ -10,6 +10,12 @@ export const LOGOUT_EVENT = "ycq-logout";
 
 export type User = { user_id: number; email: string; display_name: string; roles: string[] };
 
+// Role names as people see them. The database and API still call the
+// fleet manager role "analyst".
+const ROLE_LABELS: Record<string, string> = { analyst: "fleet manager", admin: "admin" };
+export const roleLabel = (role: string) => ROLE_LABELS[role] ?? role;
+export const roleLabels = (roles: string[]) => roles.map(roleLabel).join(", ");
+
 export const getToken = () => sessionStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string) => sessionStorage.setItem(TOKEN_KEY, token);
 

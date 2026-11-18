@@ -3,7 +3,7 @@
     uvicorn api.main:app --reload        # from the repo root; docs at /docs
 
 One router per feature in api/routers/. Add yours to the list for who may
-use it: PUBLIC (no login), ANY_ROLE (analysts and admins) or ADMIN_ONLY.
+use it: PUBLIC (no login), ANY_ROLE (fleet managers and admins) or ADMIN_ONLY.
 tests/test_auth.py checks every route against these lists.
 """
 import logging

@@ -329,7 +329,7 @@ export default function Planner() {
                 <div className="kpi"><span>{fleet}</span>taxis each hour</div>
                 <div className="kpi"><span>{hours.length}</span>{hours.length === 1 ? "hour" : "hours"}</div>
                 <div className="kpi"><span>{zonesUsed}</span>zones used</div>
-                <div className="kpi"><span>{changed.length}</span>analyst edits</div>
+                <div className="kpi"><span>{changed.length}</span>fleet manager edits</div>
                 <div className={`kpi ${unbalanced.length ? "bad" : "good"}`}>
                   <span>{unbalanced.length ? unbalanced.length : "✓"}</span>
                   {unbalanced.length ? "hours to fix" : "all hours balanced"}

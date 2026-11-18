@@ -60,7 +60,7 @@ def _http(e: Exception) -> HTTPException:
 
 @router.post("/preview")
 def preview(settings: PlanSettings, conn=Depends(get_pg), user: User = Depends(current_user)):
-    """The proposal, plus every other eligible zone so the analyst can add one."""
+    """The proposal, plus every other eligible zone so the fleet manager can add one."""
     p = settings.to_params()
     rows = planner.score(conn, p)
     return {

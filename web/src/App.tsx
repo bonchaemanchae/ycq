@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
-import { LOGOUT_EVENT, api, getToken, logout, type User } from "./api";
+import { LOGOUT_EVENT, api, getToken, logout, roleLabels, type User } from "./api";
 import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
 import Flows from "./pages/Flows";
@@ -72,7 +72,7 @@ export default function App() {
         <Status />
         {user && (
           <div className="account">
-            <span title={user.roles.join(", ")}>{user.email}</span>
+            <span title={roleLabels(user.roles)}>{user.email}</span>
             <button onClick={logout}>Log out</button>
           </div>
         )}

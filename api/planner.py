@@ -253,7 +253,7 @@ def save_version(conn: psycopg.Connection, owner_user_id: int, plan_id: int,
                     (plan_id, version_no, r["hour"], r["location_id"], r["proposed_taxis"],
                      overrides.get((r["hour"], r["location_id"]), r["proposed_taxis"]),
                      r["score"], r["rank"], r["sample_size"],
-                     r["reason"] if r["selected"] else "added by analyst: " + r["reason"])
+                     r["reason"] if r["selected"] else "added by fleet manager: " + r["reason"])
                     for r in rows
                     if r["selected"] or (r["hour"], r["location_id"]) in overrides
                 ],
