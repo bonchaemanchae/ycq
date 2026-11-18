@@ -52,3 +52,6 @@
 .dash-disclosure-body { margin-top: 10px; }
 .dash-more { align-self: center; justify-self: start; }
 .dash-footer { margin: 8px 0 0; line-height: 1.5; }
+/* imbalance: yellow where taxis are needed, grey-blue where they pile up, matching the map */
+.dash-imbalance td.pos { color: #a36f00; }
+.dash-imbalance td.neg { color: #46668f; }

@@ -21,7 +21,7 @@ type Props = {
   // optional lines drawn above the zones (Flow Explorer); omit for none
   lines?: MapLine[];
   // values can be negative (Activity Dashboard imbalance): positive zones are
-  // drawn green, negative ones red, darker the further from zero
+  // drawn yellow, negative ones grey-blue, darker the further from zero
   diverging?: boolean;
 };
 
@@ -36,7 +36,7 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick, lin
   const fill = (v: number) => {
     const strength = 0.15 + 0.85 * (Math.abs(v) / max);
     if (!diverging) return `rgba(230, 160, 0, ${strength})`;
-    return v >= 0 ? `rgba(27, 138, 82, ${strength})` : `rgba(194, 56, 43, ${strength})`;
+    return v >= 0 ? `rgba(230, 160, 0, ${strength})` : `rgba(70, 110, 160, ${strength})`;
   };
   const style = (f?: Feature): PathOptions => {
     const v = values[f?.properties?.location_id];

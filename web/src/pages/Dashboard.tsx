@@ -123,7 +123,7 @@ export default function Dashboard() {
       <ZoneMap values={values} label={metricLabel} onZoneClick={toggleCompare} diverging={metric === "imbalance"} />
       <p className="muted small dash-note">
         {metric === "imbalance"
-          ? "Green = more pickups than drop-offs, red = more drop-offs. "
+          ? "Yellow = taxis needed (more pickups than drop-offs), blue = taxis pile up (more drop-offs). "
           : "Darker = more. Grey = no matching hours. "}
         Click a zone to compare it{compareIds.length ? ` (${compareIds.length} of 3 picked)` : ""}.
       </p>

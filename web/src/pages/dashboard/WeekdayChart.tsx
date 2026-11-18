@@ -20,8 +20,8 @@ export default function WeekdayChart({ data }: { data: Weekdays }) {
           <YAxis tick={{ fontSize: 11 }} width={56} tickFormatter={(v: number) => v.toLocaleString()} />
           <Tooltip formatter={(v: number) => v.toLocaleString()}
                    labelFormatter={(l: string) => `${l} (average per day)`} />
-          <Bar dataKey="averagePickups" name="Pickups" fill="#f7c600" />
-          <Bar dataKey="averageDropoffs" name="Drop-offs" fill="#cfccc3" />
+          <Bar dataKey="averagePickups" name="Pickups" fill="#f7c600" isAnimationActive={false} />
+          <Bar dataKey="averageDropoffs" name="Drop-offs" fill="#cfccc3" isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
 
