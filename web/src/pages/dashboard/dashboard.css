@@ -29,3 +29,26 @@
 .dash-grid td { padding: 0; height: 20px; border: 1px solid var(--surface); }
 .dash-grid tbody tr:hover { background: none; }
 .dash-source { margin: 6px 0 0; text-align: right; }
+
+/* questions */
+.dash-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.dash-tabs button { padding: 8px 14px; border-radius: 999px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.dash-tabs button.active:hover:not(:disabled) { background: #33332f; color: #fff; border-color: #33332f; }
+.dash-count { font-size: 11px; background: var(--yellow-soft); color: #7a5d00; border-radius: 999px; padding: 0 6px; }
+
+/* what the page is looking at; filters open with "Refine" */
+.dash-scope { padding: 10px 14px; }
+.dash-scope-line { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.dash-refine { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; }
+
+/* the one-line answer */
+.dash-answer p { margin: 0 0 4px; }
+.dash-answer-main { font-size: 17px; line-height: 1.45; }
+.dash-action { font-size: 13px; font-weight: 600; white-space: nowrap; color: #2b5fb8; text-decoration: none; }
+.dash-action:hover { text-decoration: underline; }
+
+/* folded detail */
+.dash-disclosure { padding: 10px 14px; }
+.dash-disclosure-body { margin-top: 10px; }
+.dash-more { align-self: center; justify-self: start; }
+.dash-footer { margin: 8px 0 0; line-height: 1.5; }

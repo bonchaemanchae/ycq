@@ -155,9 +155,14 @@ be added to `PAGES` in `web/src/App.tsx` to get a tab.
 
 ### Activity Dashboard
 
-The landing page. Every part of it follows the same filters: a date range,
-days of the week, a range of hours (22 to 2 wraps past midnight), boroughs,
-and whether the map shows pickups, drop-offs or the imbalance between them.
+The landing page, built around three questions a fleet manager asks:
+**Where are taxis needed?** (the zones losing and gaining the most taxis, and
+the map), **When is it busiest?** (weekday and hour, with the day-by-day chart
+on request) and **How do these zones compare?** (up to three zones side by
+side). Each tab answers in one line first and only calls the routes it shows.
+Everything follows the same filters, which stay folded under "Refine": a date
+range, days of the week, a range of hours (22 to 2 wraps past midnight) and
+boroughs; the map can show pickups, drop-offs or the imbalance between them.
 It reads MongoDB through these routes (each takes the filters as query
 parameters, named like a saved view's filters):
 

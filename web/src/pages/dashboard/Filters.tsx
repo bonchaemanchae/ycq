@@ -1,4 +1,4 @@
-import { METRICS, WEEKDAYS, hourLabel, type Filters, type Metric } from "./types";
+import { WEEKDAYS, hourLabel, type Filters } from "./types";
 
 type Props = {
   filters: Filters;
@@ -9,15 +9,15 @@ type Props = {
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-// Date range, weekdays, hours of the day, boroughs and what to colour the map
-// by. Every change reloads the page's numbers.
+// Date range, weekdays, hours of the day and boroughs. Hidden behind "Refine"
+// on the dashboard; every change reloads the page's numbers.
 export default function DashboardFilters({ filters: f, onChange, boroughs, bounds }: Props) {
   const set = <K extends keyof Filters>(k: K, v: Filters[K]) => onChange({ ...f, [k]: v });
   const toggle = <T,>(list: T[], v: T) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
   const hour = (v: string) => (v === "" ? null : Number(v));
 
   return (
-    <div className="card dash-filters">
+    <div className="dash-filters">
       <div className="dash-field">
         <span>Dates</span>
         <div className="dash-inline">
@@ -68,18 +68,6 @@ export default function DashboardFilters({ filters: f, onChange, boroughs, bound
             <button key={b} className={f.boroughs.includes(b) ? "active" : ""}
                     onClick={() => set("boroughs", toggle(f.boroughs, b))}>
               {b}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="dash-field">
-        <span>Colour the map by</span>
-        <div className="dash-pills">
-          {METRICS.map((m) => (
-            <button key={m.value} title={m.help} className={f.metric === m.value ? "active" : ""}
-                    onClick={() => set("metric", m.value as Metric)}>
-              {m.label}
             </button>
           ))}
         </div>

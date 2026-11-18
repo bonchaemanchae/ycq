@@ -184,9 +184,8 @@ export function fromSaved(s: Record<string, unknown>, bounds: { dateFrom: string
   };
 }
 
-// One line describing a saved view, e.g. "1 Mar to 31 Mar · Mon Tue · 07:00 to 09:59 · Manhattan · Pickups".
-export function describeSaved(s: Record<string, unknown>): string {
-  const f = fromSaved(s, { dateFrom: "start", dateTo: "end" });
+// One line describing the filters, e.g. "1 Mar to 31 Mar · Mon Tue · 07:00 to 09:59 · Manhattan".
+export function describeFilters(f: Filters): string {
   const date = (d: string) => (d === "start" || d === "end" ? d : dayLabel(d));
   return [
     `${date(f.dateFrom)} to ${date(f.dateTo)}`,
@@ -194,6 +193,11 @@ export function describeSaved(s: Record<string, unknown>): string {
     f.hourFrom !== null || f.hourTo !== null
       ? `${hourLabel(f.hourFrom ?? 0)} to ${String(f.hourTo ?? 23).padStart(2, "0")}:59` : "all hours",
     f.boroughs.length ? f.boroughs.join(", ") : "all boroughs",
-    METRICS.find((m) => m.value === f.metric)!.label,
   ].join(" · ");
+}
+
+// A saved view's line: the filters plus what the map is coloured by.
+export function describeSaved(s: Record<string, unknown>): string {
+  const f = fromSaved(s, { dateFrom: "start", dateTo: "end" });
+  return `${describeFilters(f)} · ${METRICS.find((m) => m.value === f.metric)!.label}`;
 }
