@@ -91,7 +91,6 @@ body { margin: 0; background: var(--bg); }
 }
 .pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 .pill.bad .pill-dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
-.pill.subtle { font-weight: 500; color: var(--muted); }
 .switch { display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 600; cursor: pointer; color: #4a4944; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch-track {
@@ -248,3 +247,5 @@ code { background: #f0eee7; padding: 1px 5px; border-radius: 4px; font-size: 0.8
 /* Leaflet sets its own small font on the map's labels and tooltips */
 .leaflet-container { font: inherit; font-size: 0.875rem; }
 .leaflet-tooltip { font-size: 0.875rem; }
+/* a clicked zone already gets its own thick outline; no square browser focus box around it */
+.leaflet-container path.leaflet-interactive:focus { outline: none; }

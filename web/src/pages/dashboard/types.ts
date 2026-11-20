@@ -70,7 +70,7 @@ export type Point = {
   movingAveragePickups: number;
   movingAverageDropoffs: number;
   averageFare: number | null;
-  // per day only: a typical day of this weekday (median over the dates) and
+  // per day only: a normal day of this day of the week (median over the dates) and
   // this day's change against it, e.g. -0.6 = 60% below
   isoDayOfWeek?: number;
   typicalPickups?: number;
@@ -81,17 +81,10 @@ export type Series = Answered & {
   unusualThreshold: number; unusualDays: string[];   // largest change first
 };
 
-// GET /dashboard/weekdays
-export type WeekdayRow = {
-  isoDayOfWeek: number;
-  days: number;
-  pickups: number;
-  dropoffs: number;
-  averagePickups: number;
-  averageDropoffs: number;
-};
+// GET /dashboard/weekdays. The website reads only the weekday x hour grid (the
+// planner's busiest shift); the route also returns a total per weekday.
 export type GridCell = { isoDayOfWeek: number; hour: number; averagePickups: number };
-export type Weekdays = Answered & { weekdays: WeekdayRow[]; grid: GridCell[] };
+export type Weekdays = Answered & { grid: GridCell[] };
 
 // GET /dashboard/compare
 export type CompareZone = {
@@ -193,7 +186,7 @@ export function fromSaved(s: Record<string, unknown>, bounds: { dateFrom: string
   };
 }
 
-// One line describing a saved view, e.g. "1 Mar to 31 Mar · Mon Tue · 07:00 to 09:59 · Manhattan · Pickups".
+// One line describing a saved view, e.g. "1 Mar to 31 Mar, Mon Tue, 07:00 to 09:59, Manhattan & Queens, Pickups".
 export function describeSaved(s: Record<string, unknown>): string {
   const f = fromSaved(s, { dateFrom: "start", dateTo: "end" });
   const date = (d: string) => (d === "start" || d === "end" ? d : dayLabel(d));
@@ -202,7 +195,7 @@ export function describeSaved(s: Record<string, unknown>): string {
     f.weekdays.length ? f.weekdays.map((d) => WEEKDAYS[d - 1]).join(" ") : "every day",
     f.hourFrom !== null || f.hourTo !== null
       ? `${hourLabel(f.hourFrom ?? 0)} to ${String(f.hourTo ?? 23).padStart(2, "0")}:59` : "all hours",
-    f.boroughs.length ? f.boroughs.join(", ") : "all boroughs",
+    f.boroughs.length ? f.boroughs.join(" & ") : "all boroughs",
     METRICS.find((m) => m.value === f.metric)!.label,
-  ].join(" · ");
+  ].join(", ");
 }

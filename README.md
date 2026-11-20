@@ -138,7 +138,7 @@ PostgreSQL vs MongoDB check. Analysts never see these.
 | Feature (owner) | Backend (FastAPI) | Website (React) | URL |
 |---|---|---|---|
 | Analytical Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard/overview`, `/timing` |
-| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard or Planner map | — |
+| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard map | — |
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
 | Saved Views (Caleb) | `api/routers/saved_views.py` | the **Views** menu beside the Dashboard filters | — |
 | Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `/admin/users` | — |
@@ -169,22 +169,18 @@ The landing page: one page with two sections, Zone maps and then Daily trends be
 | Section | Question | Shows |
 |---|---|---|
 | Zone maps | Where do people want taxis, and where do taxis run short? | four headline totals at the top (pickups a day, or an hour when hours are filtered; the taxi balance, pickups minus drop-offs; the average fare with what it earns per taxi-hour; the average trip time and distance) (pickups, drop-offs, average fare, average trip) and one map with a **Demand \| Shortages** switch: by pickups, with every zone ranked beside it with its share of pickups, or by pickups minus drop-offs (red short of taxis, blue piling up), with the zones short of taxis and those with too many. **+** on a zone adds it to the comparison under the map (up to three: median and 90th percentile of hourly pickups, peak hour, fare, trip length); clicking a zone opens the Flow Explorer in the same panel |
-| Daily trends | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same weekday over the chosen dates (marked on the chart and listed) |
+| Daily trends | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same day of the week over the chosen dates (each Sunday against a normal Sunday) (marked on the chart and listed) |
 
 **From the dashboard to the planner.** The toolbar's **Allocate taxis →** button (the toolbar shows the filters in words, opens them in a panel, holds the **Views** menu, and stays at the top of the window while the page scrolls)
 opens the Allocation Planner with what the dashboard is filtered to; the
-shift itself is chosen in the planner. The planner's week grid greys out the
-weekdays and hours outside the dashboard's filters and starts on the busiest
-shift inside them (or on the exact shift, when the filters name one weekday
-and one hour range), already previewed, with a suggested fleet size: about
-how many taxis keep up with that shift (pickups an hour times the average
-trip time), which follows any other shift chosen and can be applied with one
-click. It takes the boroughs too, and the zones the analyst looked at (opened
-in the Flow Explorer or compared), which the planner highlights with how many
-taxis each gets, or offers to add. A banner in the planner says what came
-across, that plans learn from every loaded month whichever dates the
-dashboard showed, and links back; the dashboard keeps its state for the
-browser tab, so going back returns to the same view (`planLink` in
+shift itself is chosen in the planner. The planner starts on the busiest
+shift inside the dashboard's weekdays and hours (or on the exact shift, when
+the filters name one weekday and one hour range). It takes the boroughs too, and the zones the analyst looked
+at (opened in the Flow Explorer or compared), which the plan marks, or lists
+with one click to add them. A banner in the planner says what came across,
+that plans learn from every loaded month whichever dates the dashboard
+showed, and links back; the dashboard keeps its state for the browser tab, so
+going back returns to the same view (`planLink` in
 `web/src/pages/planner/types.ts`).
 
 Clicking a zone on the map in Zone maps opens the **Flow Explorer**
@@ -192,9 +188,7 @@ beside it: the top 10 destinations of trips from that zone, drawn as lines on
 the same map, for a month, weekday or weekend, and time band (the snapshot
 closest to the filters, which the analyst can change), and optionally the same
 slice across every month. It explains a shortage: from JFK, most trips go to
-Manhattan, so JFK's taxis leave and don't come back on their own. The
-Allocation Planner opens the same panel for a zone in the plan, at the plan's
-day and the hour being edited.
+Manhattan, so JFK's taxis leave and don't come back on their own.
 
 The dashboard reads MongoDB through these routes (each takes the filters as
 query parameters, named like a saved view's filters):
@@ -202,8 +196,8 @@ query parameters, named like a saved view's filters):
 | Route | What it returns | MongoDB features |
 |---|---|---|
 | `GET /dashboard` | Totals and every zone with its rank, share and imbalance (map, tables) | `$facet`, `$setWindowFields` (`$rank`, window `$sum`) |
-| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average; per day, a typical day of the same weekday and the unusual days | `$setWindowFields` (window `$avg`; window `$median` partitioned by weekday) |
-| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour (the Allocation Planner's week grid, where the shift is chosen) | `$facet`, two-stage `$group` |
+| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average; per day, a normal day of the same day of the week and the unusual days | `$setWindowFields` (window `$avg`; window `$median` partitioned by weekday) |
+| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour (the Allocation Planner's busiest shifts) | `$facet`, two-stage `$group` |
 | `GET /dashboard/compare` | Up to three zones side by side: median and 90th percentile of hourly pickups, peak hour | `$median`, `$percentile` |
 | `GET /dashboard/context` | Loaded date range, latest import and your recent plans (PostgreSQL) | — |
 
@@ -254,6 +248,38 @@ A database loaded with the old layout is rebuilt by itself: the loader drops
 the three activity collections if they still hold averages
 (`drop_old_layouts` in `etl/load_mongo.py`) and loads them again from
 PostgreSQL, about 40 seconds for three months.
+
+### Allocation Planner
+
+**Build a plan** has two steps. **1. Shift, taxis and area**: the weekday,
+from and to, how many taxis and the boroughs, the five things a fleet manager
+decides, in one filter row. The planner
+opens on the busiest shift. How zones are ranked is fixed at the defaults
+(pickup activity 0.50, net outflow 0.25, consistency 0.15, median fare 0.10,
+up to 10 zones an hour): they are stored with every version, PostgreSQL checks
+the weights add up to 1, `POST /plans/preview` accepts others, and admins see
+them with database details on. Every change works the plan out again by itself (`POST /plans/preview`; the taxis box waits for typing to
+stop). **2. Your plan**: a row per zone and a column per hour, every
+number editable, each hour's total under it (every hour must add up to the
+fleet; **Fix** puts the difference right). The planner **recommends** the top
+zones each hour among those with at least 30 pickups at that hour over the
+loaded weeks, and splits the taxis between them in proportion to score ×
+average pickups, so a zone with twice the pickups gets about twice the taxis.
+It **allows** any zone of the chosen boroughs: quieter ones show their pickups
+a day and can be given taxis like any other (the database only refuses zones
+outside the plan's boroughs; clicking one on the map says which borough it is
+in, with a button to add that borough). Each zone shows only what sets it apart (High fares, Steady, ⚠ Uneven week to week, Few trips); hovering its name gives the full reason. The Taxis box is the fleet for the
+whole shift (the same taxis every hour). Until the analyst types a number it
+holds, in grey, the demand of the shift's busiest hour: the plan's zones'
+pickups an hour times the average trip time (Little's law: about how many
+taxis are busy with passengers at once), and it follows the shift and the
+boroughs; a typed number is never changed by the planner. An hour whose
+demand needs more taxis than the fleet is tinted down its column, with
+"⚠ needs ≈N" under the hour (the hour shown on the map is tinted blue-grey
+instead). With database details on, **Why?** on a zone shows the numbers
+behind its ranking. **Save plan** saves it as a new
+plan or a new version of one, sealed for good. **Saved plans** lists them,
+with their versions to open or compare.
 
 ### Saved views
 

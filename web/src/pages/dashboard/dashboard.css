@@ -8,7 +8,6 @@
 .dash-pills { display: flex; flex-wrap: wrap; gap: 4px; }
 .dash-pills button { padding: 4px 11px; border-radius: 999px; font-size: 0.9375rem; }
 .dash-pills button.active:hover:not(:disabled) { background: #33332f; color: #fff; border-color: #33332f; }
-.dash-action { margin-left: auto; align-self: flex-end; display: flex; gap: 8px; align-items: center; }
 
 /* totals: the first thing on the page */
 .dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 16px; }
@@ -77,30 +76,15 @@
 /* sections */
 .dash-note { margin: 8px 0 0; }
 .dash-stale { opacity: 0.5; transition: opacity 0.15s; }
-.dash-chart-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dash-chart-head { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 8px; }
 
 /* zone comparison */
 .zone-picker { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
 .zone-picker-form { display: flex; gap: 6px; max-width: 560px; }
 .zone-picker-form select { flex: 1; min-width: 0; }
 
-/* weekday x hour grid */
-.dash-grid { table-layout: fixed; }
-.dash-grid th { padding: 4px 2px; font-size: 0.75rem; text-align: center; }
-.dash-grid tbody th { text-align: left; width: 40px; }
-.dash-grid td { padding: 0; height: 26px; border: 1px solid var(--surface); }
-.dash-grid tbody tr:hover { background: none; }
-.dash-grid td.pickable { cursor: pointer; }
-.dash-grid td.pickable:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
-.dash-grid td.picked { outline: 3px solid var(--ink); outline-offset: -3px; }
 .dash-source { margin: 8px 0 0; text-align: right; }
 
-/* opening the planner on a shift */
-.shift-pick {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px;
-  padding: 10px 14px; border-radius: 12px; background: var(--yellow-soft); border: 1px solid #f0dc8a;
-}
-.shift-pick > div { flex: 1 1 280px; }
 
 /* the Timing heading further down the same page */
 .section-head { margin: 36px 0 16px; padding-top: 20px; border-top: 1px solid var(--line-strong); scroll-margin-top: 64px; }
@@ -123,7 +107,11 @@
 }
 /* bold on hover, drawn with a text shadow so the line doesn't change width and push the buttons */
 .filter-summary:hover:not(:disabled) { background: none; color: var(--ink); text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
-.filter-summary span + span::before { content: "·"; margin: 0 8px; color: var(--muted); }
+/* a thin divider between the filters (the dates already contain commas) */
+.filter-summary span + span::before {
+  content: ""; display: inline-block; width: 1px; height: 0.95em; margin: 0 10px; vertical-align: -0.1em;
+  background: var(--line-strong);
+}
 .filter-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .allocate-watch { font-weight: 500; margin-left: 4px; }
 .filter-panel {
@@ -143,3 +131,22 @@
   font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
 }
 .zone-list .card-title { margin-bottom: 8px; }
+
+/* Daily trends: the chart's own legend and hover box */
+.chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 20px; margin-top: 6px; font-size: 0.9375rem; color: #4a4944; }
+.chart-legend > span { display: inline-flex; align-items: center; gap: 8px; }
+.legend-line { display: inline-block; width: 22px; height: 2px; border-radius: 2px; }
+.legend-line.thin { height: 1.5px; }
+.legend-line.thick { height: 3px; }
+.legend-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #c2382b; }
+.chart-tip {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1); font-size: 0.9375rem; line-height: 1.6; font-variant-numeric: tabular-nums;
+}
+.chart-tip-head { font-weight: 700; margin-bottom: 2px; }
+.chart-tip-odd { color: #c2382b; }
+
+.chart-tip-badge {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+  background: var(--red-soft); color: #c2382b; vertical-align: 1px;
+}

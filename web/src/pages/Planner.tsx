@@ -3,19 +3,19 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api, del, patch, post, type Borough } from "../api";
 import ZoneMap from "../components/ZoneMap";
 import { useDetails } from "../details";
-import FlowsPanel, { centreMap, flowLines } from "./flows/FlowsPanel";
-import { bucketOfHour, toParams, type Centroid, type Query, type Slice, type Zone } from "./flows/types";
+import { type Zone } from "./flows/types";
 import { useApi } from "./flows/useApi";
-import AllocationTable, { type TableRow } from "./planner/AllocationTable";
 import ComparePanel from "./planner/ComparePanel";
+import PlanTable, { type HourSlot, type TableRow } from "./planner/PlanTable";
 import PlansPanel from "./planner/PlansPanel";
+import SaveDialog from "./planner/SaveDialog";
 import SettingsForm from "./planner/SettingsForm";
 import StoreCheck from "./planner/StoreCheck";
-import WeekGrid, { useWeek } from "./planner/WeekGrid";
-import WatchedZones from "./planner/WatchedZones";
 import VersionsPanel from "./planner/VersionsPanel";
+import { busiestAllowed, useWeek } from "./planner/useWeek";
 import {
-  DEFAULT_WEIGHTS, busiestWithin, hourLabel, key, limitAllows, limitLabel, readLimit, toRequest,
+  DAYS, DEFAULT_WEIGHTS, fleetFor, hourLabel, key, limitAllows, readLimit, settingsProblems,
+  toRequest,
   type Change, type Limit, type PlanSummary, type Preview, type Row, type SavedVersion, type Settings, type Shift,
   type VersionSummary,
 } from "./planner/types";
@@ -25,15 +25,16 @@ import "./planner/planner.css";
 // saving in api/planner.py, rules in sql/006, sql/011 and sql/017.
 //
 // Two sections:
-//   Build a plan   choose the shift -> Preview scores every eligible zone and
-//                  splits the fleet -> adjust the final taxis (every hour must
-//                  add up to the fleet) -> save it as a new version of a plan,
-//                  in one transaction. Clicking a zone shows where its trips
-//                  go (the Flow Explorer), to help decide where to move taxis.
+//   Build a plan   1. choose the shift, the taxis and the boroughs; every
+//                  change works the plan out again (POST /plans/preview): the
+//                  top zones each hour, taxis split by score x pickups.
+//                  2. check it: a zone per row, an hour per column, any number
+//                  can be changed, and every hour must add up to the fleet.
+//                  Save plan stores it as a new version, in one transaction.
+//                  Clicking a zone highlights it on the map, and the other way round.
 //   Saved plans    rename or delete plans, open or compare their versions.
 
 type Message = { kind: "error" | "ok"; text: string } | null;
-type HourSlot = { rows: TableRow[]; candidates: Row[]; left: number };
 
 const INITIAL: Settings = {
   fleet_size: 100, iso_dow: 1, start_hour: 7, end_hour: 9, borough_ids: [],
@@ -55,28 +56,57 @@ export default function Planner() {
   const [plans, setPlans] = useState<PlanSummary[]>([]);
   const [planId, setPlanId] = useState<number | null>(null);
   const [versions, setVersions] = useState<VersionSummary[]>([]);
-  const [openVersion, setOpenVersion] = useState<number | null>(null);
+  // The saved version loaded in the planner: which plan, and which version of it.
+  const [opened, setOpened] = useState<{ planId: number; version: number } | null>(null);
 
   const [settings, setSettings] = useState<Settings>(INITIAL);
-  // The preview and the settings it was scored with. Saving always uses these.
+  // The plan and the settings it was worked out with. Saving always uses these.
   const [scored, setScored] = useState<{ settings: Settings; preview: Preview } | null>(null);
   // Final taxis the analyst changed, by "hour:location_id".
   const [edits, setEdits] = useState<Record<string, number>>({});
-  const [hour, setHour] = useState(INITIAL.start_hour);
+  const [hour, setHour] = useState(INITIAL.start_hour);      // the hour the map shows
   const [focusId, setFocusId] = useState<number | null>(null);
   const [note, setNote] = useState("");
-  const [compare, setCompare] = useState<{ from: VersionSummary; to: VersionSummary; changes: Change[] } | null>(null);
+  const [compare, setCompare] = useState<{
+    from: VersionSummary; to: VersionSummary; a: SavedVersion; b: SavedVersion; changes: Change[];
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [newPlanName, setNewPlanName] = useState("");
-  const [flow, setFlow] = useState<Query | null>(null);
+  const [saving, setSaving] = useState(false);               // the save dialog is open
+  // a confirmation (saved, created) fades out after a few seconds
+  useEffect(() => {
+    if (message?.kind !== "ok") return;
+    const t = setTimeout(() => setMessage(null), 3500);
+    return () => clearTimeout(t);
+  }, [message]);
+  // why the zone just clicked on the map can't be planned; clears itself
+  // A zone clicked on the map that isn't in the plan: what it is, and a button
+  // that adds that zone (and its borough first, when the plan doesn't cover it).
+  const [zoneNote, setZoneNote] = useState<
+    { text: string; zoneId: number; zoneName: string; borough: Borough | null; canAdd: boolean } | null>(null);
+  // A zone waiting for its borough's plan to come back before it's added.
+  const [pendingZone, setPendingZone] = useState<{ id: number; name: string; borough: string } | null>(null);
+  // Keep typed numbers through the next new plan (adding a borough re-ranks it).
+  const keepEdits = useRef(false);
+  // The zone just added: its row is scrolled to and its first box focused.
+  const [justAdded, setJustAdded] = useState<{ id: number; n: number } | null>(null);
+  useEffect(() => {
+    if (!zoneNote) return;
+    const t = setTimeout(() => setZoneNote(null), 8000);
+    return () => clearTimeout(t);
+  }, [zoneNote]);
   // What the dashboard handed over: its boroughs, its weekday and hour filters
   // (the limit), the zones the analyst looked at, and the section to go back to.
   const [handoff, setHandoff] = useState<{ boroughs: string[]; back: "overview" | "trends"; limit: Limit | null } | null>(null);
   const [watched, setWatched] = useState<number[]>([]);
   // The shift to start on once the week has loaded: the one the dashboard
-  // named, or the busiest inside its filters.
+  // named, or the busiest (inside its filters, if it sent any).
   const [pending, setPending] = useState<Shift | "busiest" | null>(null);
+  // The taxis box holds the planner's estimate (how many the shift's demand
+  // needs) until the manager types their own fleet; then it's theirs and never
+  // changes by itself. Clearing the box goes back to the estimate.
+  const [fleetTyped, setFleetTyped] = useState(false);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -106,43 +136,66 @@ export default function Planner() {
     });
   }, []);
 
-  // --- scoring ---------------------------------------------------------------
+  // --- working the plan out -----------------------------------------------------
 
+  // The settings last sent to be scored, so an older answer arriving late is ignored.
+  const requested = useRef("");
   const score = async (s: Settings) => {
+    const k = JSON.stringify(s);
+    requested.current = k;
     const preview = await post<Preview>("/plans/preview", toRequest(s));
+    if (requested.current !== k) return null;
     setScored({ settings: s, preview });
-    setHour(s.start_hour);
-    setFocusId(null);
+    setHour((h) => (h >= s.start_hour && h <= s.end_hour ? h : s.start_hour));
     return preview;
   };
 
   const previewWith = (s: Settings) => run(async () => {
+    const keep = keepEdits.current;
+    keepEdits.current = false;
+    const lost = keep ? 0 : Object.keys(edits).length;
+    const before = edits;
     const p = await score(s);
-    setEdits({});
-    setOpenVersion(null);
+    if (!p) return;
+    if (keep) {
+      const still = new Set([...p.allocations, ...p.candidates].map((r) => key(r.hour, r.location_id)));
+      setEdits(Object.fromEntries(Object.entries(before).filter(([k]) => still.has(k))));
+    } else {
+      setEdits({});
+    }
+    setOpened(null);
+    setFocusId(null);
     if (p.empty_hours.length) {
       setMessage({ kind: "error", text:
-        `No zone has ${s.min_sample}+ pickups at ${p.empty_hours.map(hourLabel).join(", ")}. ` +
-        "Lower the minimum pickups (Advanced settings) or add boroughs." });
+        `No zone has enough trips to recommend at ${p.empty_hours.map(hourLabel).join(", ")}. ` +
+        "Type taxis into any zone yourself, or add boroughs." });
+    } else if (lost) {
+      setMessage({ kind: "ok", text:
+        `Plan updated, ${lost} ${lost === 1 ? "change" : "changes"} cleared` });
     }
   });
-  const doPreview = () => previewWith(settings);
 
-  // A shift chosen from the busiest shifts, or handed over by the dashboard:
-  // set it and preview it straight away.
-  const planShift = (shift: Shift, boroughIds?: number[], fleet?: number) => {
-    const s = { ...settings, iso_dow: shift.dow, start_hour: shift.from, end_hour: shift.to,
-                ...(boroughIds?.length ? { borough_ids: boroughIds } : {}),
-                ...(fleet ? { fleet_size: fleet } : {}) };
-    setSettings(s);
-    previewWith(s);
-  };
+  // Any change to the settings works the plan out again, a moment after the last one.
+  useEffect(() => {
+    if (!boroughs.length || pending) return;
+    if (JSON.stringify(settings) === requested.current || settingsProblems(settings).length) return;
+    const t = setTimeout(() => previewWith(settings), 250);
+    return () => clearTimeout(t);
+  }, [settings, boroughs.length, pending]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // /planner/build?boroughs=Manhattan,Queens&days=2,3&hours=7-9&watch=132 (planLink
-  // in planner/types.ts). Read once the boroughs are known, then cleared from the address.
+  // in planner/types.ts). Read once the boroughs are known, then cleared from
+  // the address. Without one, the planner starts on the busiest shift.
   const [search, setSearch] = useSearchParams();
+  const started = useRef(false);
   useEffect(() => {
-    if (!boroughs.length || ![...search.keys()].length) return;
+    if (!boroughs.length) return;
+    const fresh = !started.current;
+    started.current = true;
+    if (![...search.keys()].length) {
+      if (fresh) setPending("busiest");
+      return;
+    }
     const names = (search.get("boroughs") ?? "").split(",").filter(Boolean);
     const ids = boroughs.filter((b) => names.includes(b.name)).map((b) => b.borough_id);
     const dow = Number(search.get("dow")), from = Number(search.get("from")), to = Number(search.get("to"));
@@ -151,14 +204,17 @@ export default function Planner() {
     const back = ["trends", "timing"].includes(search.get("back") ?? "") ? "trends" : "overview";
     const limit = readLimit(search);
     setSearch({}, { replace: true });
-    if (!ids.length) return;
+    if (!ids.length) {
+      if (fresh) setPending("busiest");
+      return;
+    }
     setWatched(watch);
     setSettings((x) => ({ ...x, borough_ids: ids }));
     setHandoff({ boroughs: names, back, limit });
     setPending(exact ? { dow, from, to } : "busiest");
-  }, [boroughs, search]);
+  }, [boroughs, search]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  // The week of the chosen boroughs, for the grid, the busiest shifts and the fleet estimate.
+  // The week of the chosen boroughs: the busiest shift to start on, and the average trip time.
   const chosenNames = useMemo(
     () => boroughs.filter((b) => settings.borough_ids.includes(b.borough_id)).map((b) => b.name),
     [boroughs, settings.borough_ids]);
@@ -166,17 +222,48 @@ export default function Planner() {
   const limit = handoff?.limit ?? null;
   const allow = useMemo(() => (limit ? limitAllows(limit) : undefined), [limit]);
 
-  // Start on the handed-over shift as soon as the week is in, with the fleet
-  // that keeps up with it, and score it.
+  // Start on the pending shift as soon as the week is in.
   useEffect(() => {
-    if (!pending || !week.ready) return;
+    if (!pending) return;
+    if (week.error) {
+      setPending(null);
+      return;
+    }
+    if (!week.ready) return;
+    const shift = pending === "busiest" ? busiestAllowed(week.grid, 1, allow)[0] : pending;
     setPending(null);
-    const shift = pending === "busiest" ? busiestWithin(week.grid, limit) : pending;
-    if (shift) planShift(shift, undefined, week.fleetOf(shift) ?? undefined);
-  }, [pending, week.ready]);   // eslint-disable-line react-hooks/exhaustive-deps
+    if (shift) {
+      setSettings((s) => ({ ...s, iso_dow: shift.dow, start_hour: shift.from, end_hour: shift.to }));
+    }
+  }, [pending, week.ready, week.error]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // About how many taxis keep up with the zones in this plan: their pickups an
+  // hour at the plan's busiest hour, times the average trip time.
+  const demand = useMemo(() => {
+    if (!scored) return null;
+    const perHour = new Map<number, number>();
+    for (const r of scored.preview.allocations) perHour.set(r.hour, (perHour.get(r.hour) ?? 0) + Number(r.avg_pickups));
+    const peak = Math.max(0, ...perHour.values());
+    return { peak, fleet: fleetFor(peak, week.tripSec) };
+  }, [scored, week.tripSec]);
+  const suggested = demand?.fleet ?? null;
+  // While the box is on the estimate, follow it as the shift or the area changes.
+  useEffect(() => {
+    if (fleetTyped || suggested === null) return;
+    // an automatic re-estimate isn't the manager's change: keep what they typed or added
+    if (settings.fleet_size !== suggested) keepEdits.current = true;
+    setSettings((s) => (s.fleet_size === suggested ? s : { ...s, fleet_size: suggested }));
+  }, [suggested, fleetTyped]);
+  const setFleet = (n: number | null) => {
+    if (n === null) return setFleetTyped(false);          // emptied: back to the estimate
+    setFleetTyped(true);
+    setSettings((s) => ({ ...s, fleet_size: n }));
+  };
 
   // Loads a saved version: its settings, a fresh score, and its final taxis as edits.
   const openSaved = async (id: number, versionNo: number) => {
+    setPending(null);
+    setFleetTyped(true);                                     // a saved fleet was a real decision
     const v = await api<SavedVersion>(`/plans/${id}/versions/${versionNo}`);
     const s: Settings = {
       fleet_size: v.fleet_size, iso_dow: v.iso_dow, start_hour: v.start_hour, end_hour: v.end_hour,
@@ -186,6 +273,7 @@ export default function Planner() {
     };
     setSettings(s);
     const p = await score(s);
+    if (!p) return;
     const saved = new Map(v.results.map((r) => [key(r.hour, r.location_id), r.final_taxis]));
     const next: Record<string, number> = {};
     for (const r of p.allocations) {
@@ -198,43 +286,34 @@ export default function Planner() {
       if (final) next[key(r.hour, r.location_id)] = final;
     }
     setEdits(next);
-    setOpenVersion(versionNo);
+    setOpened({ planId: id, version: versionNo });
     setNote("");
-    setFlow(null);
+    setFocusId(null);
   };
 
   // --- plans (CRUD) ----------------------------------------------------------
 
+  // Picking a plan lists its versions; a version is loaded only when opened.
   const selectPlan = (id: number) => run(async () => {
     setPlanId(id);
     setCompare(null);
-    const v = await loadVersions(id);
-    if (v.length) await openSaved(id, v[0].version_no);
-    else setOpenVersion(null);
+    await loadVersions(id);
   });
+  // Saved plans opens on the most recently changed plan (the list comes newest
+  // first), with its versions, rather than on an empty panel.
+  useEffect(() => {
+    if (tab === "saved" && planId === null && plans.length > 0) selectPlan(plans[0].allocation_plan_id);
+  }, [tab, planId, plans]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const createPlan = (name: string) => run(async () => {
-    const { allocation_plan_id } = await post<{ allocation_plan_id: number }>("/plans", { name });
-    await loadPlans();
-    setPlanId(allocation_plan_id);
-    setVersions([]);
-    setOpenVersion(null);
-    setCompare(null);
-    setMessage({ kind: "ok", text: `Created “${name}”. Build the plan, then save it as version 1.` });
-    navigate("/planner/build");
-  });
-
-  // The plan the save bar saves to: an existing one, or a new one to create.
+  // The plan the dialog saves to: an existing one, or a new one to create.
   const pickSaveTarget = (value: string) => run(async () => {
     if (value === "new") {
       setPlanId(null);
       setVersions([]);
-      setOpenVersion(null);
       return;
     }
     const id = Number(value);
     setPlanId(id);
-    setOpenVersion(null);
     await loadVersions(id);
   });
 
@@ -245,25 +324,31 @@ export default function Planner() {
 
   const deletePlan = (id: number) => run(async () => {
     await del(`/plans/${id}`);
+    if (opened?.planId === id) setOpened(null);
     if (id === planId) {
       setPlanId(null);
       setVersions([]);
-      setOpenVersion(null);
       setCompare(null);
     }
     await loadPlans();
   });
 
-  const compareVersions = (from: number, to: number) => run(async () => {
-    const changes = await api<Change[]>(`/plans/${planId}/compare?from_version=${from}&to_version=${to}`);
+  // The older version always on the left, whichever order they were picked in.
+  const compareVersions = (x: number, y: number) => run(async () => {
+    const [from, to] = x < y ? [x, y] : [y, x];
+    const [changes, a, b] = await Promise.all([
+      api<Change[]>(`/plans/${planId}/compare?from_version=${from}&to_version=${to}`),
+      api<SavedVersion>(`/plans/${planId}/versions/${from}`),
+      api<SavedVersion>(`/plans/${planId}/versions/${to}`),
+    ]);
     setCompare({
       from: versions.find((v) => v.version_no === from)!,
       to: versions.find((v) => v.version_no === to)!,
-      changes,
+      a, b, changes,
     });
   });
 
-  // --- the allocation being edited --------------------------------------------
+  // --- the plan being edited ------------------------------------------------------
 
   const fleet = scored?.settings.fleet_size ?? 0;
   const hours = scored ? range(scored.settings.start_hour, scored.settings.end_hour) : [];
@@ -294,19 +379,75 @@ export default function Planner() {
     const k = key(row.hour, row.location_id);
     const next = { ...edits };
     if (row.selected && taxis === row.proposed_taxis) delete next[k];
+    else if (!row.selected && taxis === 0 && !(k in edits)) return;   // 0 typed into an empty cell
     else next[k] = taxis;
     setEdits(next);
   };
 
-  const addRow = (row: Row) => {
-    setEdits({ ...edits, [key(row.hour, row.location_id)]: 0 });
-    setFocusId(row.location_id);
-  };
-
-  const removeRow = (row: Row) => {
+  // Adds a zone to every hour of the shift where it's eligible, with no taxis
+  // yet, then shows it: highlighted, the map zoomed to it, its row scrolled to
+  // and its first box ready for typing.
+  const addZone = (id: number, note?: string) => {
     const next = { ...edits };
-    delete next[key(row.hour, row.location_id)];
+    let name = "";
+    for (const h of hours) {
+      const c = byHour[h].candidates.find((x) => x.location_id === id);
+      if (c) {
+        next[key(h, id)] ??= 0;
+        name = c.zone_name;
+      }
+    }
     setEdits(next);
+    setFocusId(id);
+    setZoomTo((z) => ({ id, n: (z?.n ?? 0) + 1 }));
+    setJustAdded((a) => ({ id, n: (a?.n ?? 0) + 1 }));
+    if (name) setMessage({ kind: "ok", text: `Added ${name}: type its taxis${note ? `. ${note}` : ""}` });
+  };
+  useEffect(() => {
+    if (!justAdded) return;
+    const box = document.querySelector<HTMLInputElement>(`#zone-row-${justAdded.id} .cell input`);
+    box?.scrollIntoView({ block: "center", behavior: "smooth" });
+    box?.focus({ preventScroll: true });
+  }, [justAdded]);
+
+  // The note's button: add the zone, adding its borough first when needed.
+  const addFromNote = () => {
+    if (!zoneNote?.canAdd) return;
+    const { zoneId, zoneName, borough } = zoneNote;
+    setZoneNote(null);
+    if (!borough) return addZone(zoneId);
+    keepEdits.current = true;
+    setPendingZone({ id: zoneId, name: zoneName, borough: borough.name });
+    setSettings((x) => ({ ...x, borough_ids: [...new Set([...x.borough_ids, borough.borough_id])] }));
+  };
+  // Once the plan with the new borough is in, add the zone that was clicked.
+  useEffect(() => {
+    if (!pendingZone || !scored || stale) return;
+    if (!scored.preview.candidates.some((r) => r.location_id === pendingZone.id)
+        && !scored.preview.allocations.some((r) => r.location_id === pendingZone.id)) return;
+    const { id, borough } = pendingZone;
+    setPendingZone(null);
+    if (Object.values(byHour).some((slot) => slot.rows.some((r) => r.location_id === id))) {
+      // the new borough's ranking already put it in the plan
+      setFocusId(id);
+      setZoomTo((z) => ({ id, n: (z?.n ?? 0) + 1 }));
+      setJustAdded((a) => ({ id, n: (a?.n ?? 0) + 1 }));
+      setMessage({ kind: "ok", text: `${pendingZone.name} is in the plan. ${borough} added, so its zones are ranked too` });
+    } else {
+      addZone(id, `${borough} added, so its zones are ranked too`);
+    }
+  }, [scored, stale, pendingZone]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const removeZone = (id: number) => {
+    const next = { ...edits };
+    for (const h of hours) {
+      const r = byHour[h].rows.find((x) => x.location_id === id);
+      if (r?.added) delete next[key(h, id)];
+    }
+    setEdits(next);
+    // it was shown on the map: let it go and zoom back out
+    setFocusId(null);
+    setResetView((n) => n + 1);
   };
 
   // Puts the taxis still to place on the top zone, or takes the excess from
@@ -333,51 +474,60 @@ export default function Planner() {
     setEdits(next);
   };
 
-  // Clicking a zone on the map finds it in the table, or adds it if eligible.
+  // Clicking a zone on the map: if it's in the plan, show it; if not, a note
+  // offers to add it (and its borough, when needed). Nothing is added by a click alone.
   const zoneClick = useRef<(id: number) => void>(() => {});
   zoneClick.current = (id: number) => {
-    const slot = byHour[hour];
-    if (!slot) return;
-    if (slot.rows.some((r) => r.location_id === id)) return setFocusId(id);
-    const candidate = slot.candidates.find((r) => r.location_id === id);
-    if (candidate) return addRow(candidate);
-    setMessage({ kind: "error", text:
-      `That zone isn't eligible at ${hourLabel(hour)}: it's outside the chosen boroughs ` +
-      `or had fewer than ${scored?.settings.min_sample} pickups.` });
+    if (!scored) return;
+    // already in the plan at some hour: just show it
+    if (Object.values(byHour).some((slot) => slot.rows.some((r) => r.location_id === id))) return setFocusId(id);
+    const z = zones.data?.find((x) => x.location_id === id);
+    const name = z?.zone_name ?? `Zone ${id}`;
+    if (Object.values(byHour).some((slot) => slot.candidates.some((r) => r.location_id === id))) {
+      return setZoneNote({ text: `${name} isn't in this plan.`, zoneId: id, zoneName: name, borough: null, canAdd: true });
+    }
+    const borough = z ? boroughs.find((b) => b.name === z.borough) ?? null : null;
+    setZoneNote(borough && !scored.settings.borough_ids.includes(borough.borough_id)
+      ? { text: `${name} is in ${borough.name}, which isn't in this plan.`, zoneId: id, zoneName: name, borough, canAdd: true }
+      : { text: `${name} can't be planned: it has no map shape.`, zoneId: id, zoneName: name, borough: null, canAdd: false });
   };
   const onZoneClick = useCallback((id: number) => zoneClick.current(id), []);
+  // A zone's name clicked in the table: highlight it and zoom the map to it.
+  // (Clicking on the map only highlights, so the view doesn't jump.)
+  const [zoomTo, setZoomTo] = useState<{ id: number; n: number } | null>(null);
+  // Undo my changes: the proposal back, nothing highlighted, the map back on the whole city.
+  const [resetView, setResetView] = useState(0);
+  const undoAll = () => {
+    setEdits({});
+    setFocusId(null);
+    setResetView((n) => n + 1);
+  };
+  // Clicking the highlighted zone's name again lets it go and zooms back out.
+  const focusFromTable = (id: number) => {
+    if (id === focusId) {
+      setFocusId(null);
+      setResetView((n) => n + 1);
+      return;
+    }
+    setFocusId(id);
+    setZoomTo((z) => ({ id, n: (z?.n ?? 0) + 1 }));
+  };
 
-  // The Flow Explorer for the zone in focus, at this plan's day type and the
-  // time band of the hour being edited, in the latest month.
-  const months = useApi<string[]>("/flows/months");
-  const centroids = useApi<Centroid[]>("/zones/centroids");
-  const latestMonth = months.data?.[months.data.length - 1];
-  useEffect(() => {
-    if (focusId === null || !scored || !latestMonth) return;
-    setFlow((f) => ({
-      originZoneId: focusId,
-      month: latestMonth,
-      dayType: f?.dayType ?? (scored.settings.iso_dow >= 6 ? "weekend" : "weekday"),
-      timeBucket: bucketOfHour(hour),
-    }));
-  }, [focusId, hour, scored, latestMonth]);
-  const slice = useApi<Slice>(flow && `/flows?${toParams(flow)}`);
-  const centre = useMemo(() => centreMap(centroids.data), [centroids.data]);
-  const lines = useMemo(() => flowLines(slice.data, centre), [slice.data, centre]);
 
   const slot = byHour[hour];
   const mapValues = Object.fromEntries((slot?.rows ?? []).filter((r) => r.final > 0).map((r) => [r.location_id, r.final]));
   const allRows = Object.values(byHour).flatMap((s) => s.rows);
   const changed = allRows.filter((r) => (r.added ? r.final > 0 : r.final !== r.proposed_taxis));
-  const zonesUsed = new Set(allRows.filter((r) => r.final > 0).map((r) => r.location_id)).size;
   const unbalanced = hours.filter((h) => byHour[h].left !== 0);
   const nextVersion = (versions[0]?.version_no ?? 0) + 1;
 
-  const blocker =
-    planId === null && !newPlanName.trim() ? "Name the new plan, or choose one of your plans to save to." :
-    stale ? "The settings changed since the preview. Preview again before saving." :
-    unbalanced.length ? `${unbalanced.map(hourLabel).join(", ")} ${unbalanced.length > 1 ? "don't" : "doesn't"} add up to the fleet of ${fleet} yet.` :
+
+  // what stops the plan from being saved, then what the dialog still needs
+  const planBlocker =
+    stale ? "The plan is still updating for the new settings." :
+    unbalanced.length ? `${unbalanced.map(hourLabel).join(", ")} ${unbalanced.length > 1 ? "don't" : "doesn't"} add up to ${fleet.toLocaleString()} taxis yet.` :
     null;
+  const blocker = planBlocker ?? (planId === null && !newPlanName.trim() ? "Give the new plan a name." : null);
 
   const save = () => run(async () => {
     if (!scored) return;
@@ -394,62 +544,61 @@ export default function Planner() {
       edits: changed.map((r) => ({ hour: r.hour, location_id: r.location_id, final_taxis: r.final })),
     });
     await Promise.all([loadPlans(), loadVersions(id)]);
-    setOpenVersion(version_no);
+    setOpened({ planId: id!, version: version_no });
     setNote("");
-    setMessage({ kind: "ok", text: `Saved as version ${version_no} of “${name}”. Saved versions are sealed and can't be changed.` });
+    setSaving(false);
+    setMessage({ kind: "ok", text: `Saved as v${version_no} of “${name}”` });
   });
   const planName = plans.find((p) => p.allocation_plan_id === planId)?.name;
 
   const zones = useApi<Zone[]>("/zones");
   const zoneNames = useMemo(() => new Map((zones.data ?? []).map((z) => [z.location_id, z.zone_name])), [zones.data]);
   const backName = handoff?.back === "trends" ? "Daily trends" : "Zone maps";
-  const fromDashboard = handoff && (
-    <div className="handoff">
-      <span>
-        <strong>From {backName}:</strong>{" "}
-        {[handoff.boroughs.length >= 6 ? "all boroughs" : handoff.boroughs.join(", "),
-          watched.length ? `${watched.length} watched ${watched.length === 1 ? "zone" : "zones"}` : "",
-          handoff.limit ? limitLabel(handoff.limit) : ""]
-          .filter(Boolean).join(" · ")}
-        {" · "}<strong>Plans use all of {week.months}</strong>
-      </span>
-      <Link to={`/dashboard/${handoff.back}`}>← Back to {backName}</Link>
-      <button className="link" onClick={() => { setHandoff(null); setWatched([]); }} aria-label="Dismiss">✕</button>
-    </div>
+  // Back to the dashboard section the analyst came from (its boroughs, hours
+  // and watched zones came over and show in the filters and the table).
+  const backLink = handoff && (
+    <Link className="back-link" to={`/dashboard/${handoff.back}`}>← Back to {backName}</Link>
   );
 
-  // The fleet that keeps up with the shift in the settings, with a button to use it.
-  const shiftNow = { dow: settings.iso_dow, from: settings.start_hour, to: settings.end_hour };
-  const suggested = week.ready && shiftNow.from <= shiftNow.to ? week.fleetOf(shiftNow) : null;
-  const fleetHint = suggested !== null && (
-    <>
-      <span title="About how many taxis keep up with this shift: its pickups an hour times the average trip time, i.e. how many are busy with a passenger at once">
-        Suggested ≈ {suggested.toLocaleString()}
-      </span>
-      {suggested !== settings.fleet_size && (
-        <button type="button" className="link" onClick={() => setSettings({ ...settings, fleet_size: suggested })}>
-          Use it
-        </button>
-      )}
-    </>
-  );
+  // How many taxis each hour's demand needs, as information (the fleet is what
+  // the manager has): the plan's zones' pickups that hour times the average trip.
+  const need = useMemo(() => {
+    const out: Record<number, number | null> = {};
+    if (!scored) return out;
+    for (const h of hours) {
+      const pickups = scored.preview.allocations.filter((r) => r.hour === h).reduce((n, r) => n + Number(r.avg_pickups), 0);
+      out[h] = fleetFor(pickups, week.tripSec);
+    }
+    return out;
+  }, [scored, week.tripSec]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const shortHours = hours.filter((h) => need[h] !== null && need[h]! > fleet);
+  // the busiest hour's demand: the one number the fleet is compared with
+  const peakHour = hours.reduce<number | null>((best, h) => (need[h] !== null && (best === null || need[h]! > need[best]!) ? h : best), null);
+  const peak = peakHour === null ? null : { taxis: need[peakHour]!, hour: hourLabel(peakHour) };
 
-  const header = (
+  const header = tab === "saved" ? (
     <div className="page-head">
-      <h1>{tab === "saved" ? "Saved plans" : "Build a plan"}</h1>
-      <p className="muted">
-        {tab === "saved"
-          ? "Every save is a new version that can't be changed afterwards. Open a version to work from it, or compare two to see which zones gained or lost taxis."
-          : "How many taxis to station in each zone, hour by hour. The planner scores zones on past pickups, shortages, steadiness and fares; you adjust and save. Plans come from historical trips, not live taxi positions."}
-      </p>
+      <h1>Saved plans</h1>
+    </div>
+  ) : (
+    <div className="page-head">
+      {backLink}
+      <h1>Build a plan</h1>
     </div>
   );
-  const alert = message && (
-    <div className={`alert ${message.kind}`}>
+  // Errors stay on the page until dismissed; confirmations are a toast in the
+  // top corner that goes away by itself.
+  const alert = message && (message.kind === "error" ? (
+    <div className="alert error">
       <span>{message.text}</span>
       <button className="link" onClick={() => setMessage(null)} aria-label="Dismiss">✕</button>
     </div>
-  );
+  ) : (
+    <div className="toast" role="status" key={message.text}>
+      <span className="toast-tick" aria-hidden="true">✓</span>
+      <span>{message.text}</span>
+    </div>
+  ));
 
   if (tab === "saved") {
     return (
@@ -458,12 +607,13 @@ export default function Planner() {
         {alert}
         <div className="saved-layout">
           <PlansPanel plans={plans} selectedId={planId} onSelect={selectPlan}
-                      onCreate={createPlan} onRename={renamePlan} onDelete={deletePlan} />
+                      onRename={renamePlan} onDelete={deletePlan} />
           <div>
             {planId === null ? (
               <div className="card"><p className="muted">Choose a plan to see its versions.</p></div>
             ) : (
-              <VersionsPanel versions={versions} openVersion={openVersion}
+              <VersionsPanel planName={plans.find((p) => p.allocation_plan_id === planId)?.name ?? "Versions"}
+                             versions={versions} openVersion={opened && opened.planId === planId ? opened.version : null}
                              onOpen={(n) => run(async () => {
                                await openSaved(planId, n);
                                navigate("/planner/build");
@@ -477,129 +627,101 @@ export default function Planner() {
     );
   }
 
-  const focusName = flow && (slot?.rows.find((r) => r.location_id === flow.originZoneId)?.zone_name
-    ?? slot?.candidates.find((r) => r.location_id === flow.originZoneId)?.zone_name
-    ?? `zone ${flow.originZoneId}`);
+  // one status beside Save: can't be saved yet, saved but short of demand, or ready
+  // Beside Save, only what stops it: hours that don't add up. Hours short of
+  // demand are marked on their column in the table.
+  const warnings = [
+    unbalanced.length > 0 && { kind: "bad", text: unbalanced.map((h) => {
+      const left = byHour[h].left;
+      const n = Math.abs(left), taxis = n === 1 ? "taxi" : "taxis";
+      return left > 0 ? `${hourLabel(h)}: ${n} ${taxis} not placed` : `${hourLabel(h)}: ${n} extra ${taxis}`;
+    }).join(", ") },
+  ].filter(Boolean) as { kind: string; text: string }[];
+  const days = scored?.preview.allocations[0]?.days ?? null;
 
   return (
     <section className="planner">
       {header}
-      {fromDashboard}
       {alert}
 
       <SettingsForm settings={settings} onChange={setSettings} boroughs={boroughs}
-                    onPreview={doPreview} busy={busy} stale={stale} fleetHint={fleetHint}
-                    suggestions={
-                      <WeekGrid week={week} hasBoroughs={chosenNames.length > 0} current={shiftNow} allow={allow}
-                                onChoose={(shift) => planShift(shift)} />
-                    } />
+                    fleetIsEstimate={!fleetTyped} onFleet={setFleet} peak={peak}
+                    updating={busy || stale || pending !== null} details={details.on} />
 
-      {scored && (
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title">
-              2. Check and adjust each hour{" "}
-              <div className="card-sub">
-                {openVersion ? `Opened from version ${openVersion} of “${planName}”.` : "A new proposal."} Click a
-                zone name or the map to see where its trips go.
-              </div>
-            </div>
-            <button className="link" onClick={() => setEdits({})} disabled={Object.keys(edits).length === 0}>
-              Reset to proposal
-            </button>
-          </div>
-
-          <div className={`plan-status ${unbalanced.length ? "bad" : "good"}`}>
-            <span>{zonesUsed} {zonesUsed === 1 ? "zone" : "zones"} used</span>
-            <span>{changed.length} {changed.length === 1 ? "edit" : "edits"}</span>
-            <strong>
-              {unbalanced.length
-                ? `${unbalanced.length} ${unbalanced.length === 1 ? "hour doesn't" : "hours don't"} add up to ${fleet} yet`
-                : `every hour adds up to ${fleet} taxis`}
-            </strong>
-          </div>
-
-          <div className="hour-tabs">
-            {hours.map((h) => {
-              const left = byHour[h].left;
-              return (
-                <button key={h} className={`hour-tab ${h === hour ? "active" : ""} ${left === 0 ? "ok" : "bad"}`}
-                        onClick={() => setHour(h)}>
-                  {hourLabel(h)}
-                  <span className="badge">{left === 0 ? "✓" : left > 0 ? `${left} left` : `${-left} over`}</span>
+      {!scored ? (
+        <div className="card"><p className="muted">{week.error || "Working out the plan for the busiest shift…"}</p></div>
+      ) : (
+        <div className={`card ${stale ? "plan-stale" : ""}`}>
+          <div className="plan-head">
+            <h2 className="plan-title">
+              Your plan
+            </h2>
+            {/* where the numbers come from, always in view */}
+            <span className="muted small plan-source">
+              Based on {days ? `${days} ${DAYS[scored.settings.iso_dow - 1]}s` : `every ${DAYS[scored.settings.iso_dow - 1]}`} of
+              past trips ({week.months}), not live taxi positions
+            </span>
+            {opened && <span className="muted small">from version {opened.version} of “{plans.find((x) => x.allocation_plan_id === opened.planId)?.name ?? "a deleted plan"}”</span>}
+            <span className="plan-actions-right">
+              {changed.length > 0 && (
+                <button className="link" onClick={undoAll}>
+                  Undo my {changed.length} {changed.length === 1 ? "change" : "changes"}
                 </button>
-              );
-            })}
+              )}
+              {warnings.map((w) => <span key={w.text} className={`status-chip ${w.kind}`}>{w.text}</span>)}
+              <button className="primary" onClick={() => setSaving(true)} disabled={busy || planBlocker !== null}>
+                Save plan
+              </button>
+            </span>
           </div>
 
-          {slot && (
-            <div className="split planner-split">
-              <div>
-                {slot.rows.length === 0 ? (
-                  <p className="muted">No zone is eligible at {hourLabel(hour)}.</p>
-                ) : slot.left !== 0 && (
-                  <div className={`hint ${slot.left > 0 ? "" : "over"}`}>
-                    <span>
-                      {slot.left > 0
-                        ? <><strong>{slot.left}</strong> {slot.left === 1 ? "taxi" : "taxis"} left to place at {hourLabel(hour)}</>
-                        : <><strong>{-slot.left}</strong> too many at {hourLabel(hour)}</>}
-                    </span>
-                    <button onClick={() => balance(hour)}>
-                      {slot.left > 0 ? `Give to #${slot.rows[0].rank}` : "Take from the lowest ranked"}
-                    </button>
-                  </div>
-                )}
-                <WatchedZones watched={watched} names={zoneNames} hour={hour} rows={slot.rows}
-                              candidates={slot.candidates} weights={scored.settings}
-                              onFocus={(id) => setFocusId(id)} onAdd={addRow} />
-                <AllocationTable rows={slot.rows} candidates={slot.candidates} weights={scored.settings} watched={watched}
-                                 focusId={focusId} onSet={setFinal} onAdd={addRow} onRemove={removeRow}
-                                 onFocus={(r) => setFocusId(r.location_id)} />
-              </div>
-              <div className="map-col">
-                <ZoneMap values={mapValues} label="taxis" onZoneClick={onZoneClick} selectedId={focusId} markedIds={watched}
-                         lines={flow ? lines : undefined} />
-                <div className="legend">
-                  <span>fewer taxis</span><span className="ramp" /><span>more taxis</span>
-                  <span className="muted">· grey: none placed</span>
-                </div>
-                {flow && months.data && (
-                  <div className="planner-flows">
-                    <FlowsPanel query={flow} onChange={setFlow} months={months.data} slice={slice} compact
-                                originName={focusName ?? ""}
-                                onClose={() => { setFlow(null); setFocusId(null); }}
-                                note={<>Taxis that pick up here end up in these zones. Latest month, matched to
-                                  this plan's day and the {hourLabel(hour)} hour.</>} />
-                  </div>
-                )}
-              </div>
+          {zoneNote && (
+            <div className="zone-note" role="status">
+              <span className="zone-note-icon" aria-hidden="true">⚠</span>
+              <span className="zone-note-text">{zoneNote.text}</span>
+              {zoneNote.canAdd && (
+                <button className="zone-note-add" onClick={addFromNote}>
+                  Add {zoneNote.zoneName}
+                  {zoneNote.borough && <span className="zone-note-sub"> (adds {zoneNote.borough.name})</span>}
+                </button>
+              )}
+              <button className="link zone-note-x" onClick={() => setZoneNote(null)} aria-label="Dismiss">✕</button>
             </div>
           )}
+
+          <div className="split planner-split">
+            <PlanTable hours={hours} byHour={byHour} weights={scored.settings} fleet={fleet} watched={watched}
+                       names={zoneNames} focusId={focusId} mapHour={hour} onSet={setFinal} onAddZone={(id) => addZone(id)}
+                       onRemoveZone={removeZone} onBalance={balance} onFocus={focusFromTable} onMapHour={setHour}
+                       need={need} details={details.on} />
+            <div className="map-col">
+              <label className="map-hour">
+                <span>Map shows</span>
+                <select value={hour} onChange={(e) => setHour(Number(e.target.value))}>
+                  {hours.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+                </select>
+              </label>
+              <ZoneMap values={mapValues} label="taxis" onZoneClick={onZoneClick} selectedId={focusId} markedIds={watched}
+                       zoomTo={zoomTo} resetView={resetView} />
+              <div className="legend">
+                <span>fewer taxis</span><span className="ramp" /><span>more taxis</span>
+                <span className="muted legend-gap">grey: none placed</span>
+                <span className="legend-outline outline-selected" aria-hidden="true" /><span className="muted">selected</span>
+                {watched.length > 0 && <><span className="legend-outline outline-watched" aria-hidden="true" /><span className="muted">watched</span></>}
+              </div>
+            </div>
+          </div>
+
         </div>
       )}
 
       {scored && details.on && <StoreCheck settings={scored.settings} />}
 
-      {scored && (
-        <div className="save-bar">
-          <span className="save-label">3. Save to</span>
-          <select value={planId ?? "new"} onChange={(e) => pickSaveTarget(e.target.value)} aria-label="Plan to save to">
-            <option value="new">A new plan…</option>
-            {plans.map((p) => <option key={p.allocation_plan_id} value={p.allocation_plan_id}>{p.name}</option>)}
-          </select>
-          {planId === null && (
-            <input placeholder="New plan name" value={newPlanName} maxLength={100}
-                   onChange={(e) => setNewPlanName(e.target.value)} />
-          )}
-          <input placeholder="Note for this version (optional)" value={note} maxLength={500}
-                 onChange={(e) => setNote(e.target.value)} />
-          <button className="primary" onClick={save} disabled={busy || blocker !== null}>
-            {planId === null ? "Save as version 1" : `Save as v${nextVersion}`}
-          </button>
-          <div className={`save-status ${blocker ? "" : "ready"}`}>
-            {blocker ?? `Every hour adds up to ${fleet} taxis. Ready to save.`}
-          </div>
-        </div>
+      {saving && (
+        <SaveDialog plans={plans} planId={planId} onPickPlan={pickSaveTarget} newName={newPlanName}
+                    onNewName={setNewPlanName} note={note} onNote={setNote} nextVersion={nextVersion}
+                    blocker={blocker} error={message?.kind === "error" ? message.text : null}
+                    busy={busy} onSave={save} onClose={() => setSaving(false)} />
       )}
     </section>
   );

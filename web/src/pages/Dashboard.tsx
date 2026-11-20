@@ -36,7 +36,7 @@ import "./dashboard/dashboard.css";
 //             Flow Explorer (where its trips go) in that panel, and + adds it
 //             to the comparison under the map.
 //   Daily trends    how steady demand is: pickups per day with a moving average,
-//             and the unusual days, each compared with a typical day of the
+//             and the unusual days, each compared with a normal day of the
 //             same weekday (worked out in the MongoDB pipeline). The week's
 //             busiest hours are chosen in the Allocation Planner instead.
 // The filter bar's Allocate taxis button opens the planner with the filtered
@@ -49,7 +49,7 @@ type MapMode = "demand" | "shortages";
 
 const TABS: Record<Tab, { title: string; question: string }> = {
   overview: { title: "Zone maps", question: "" },
-  trends: { title: "Daily trends", question: "How steady demand is from day to day, and which days broke the pattern. Same filters as above." },
+  trends: { title: "Daily trends", question: "" },
 };
 const TAB_KEYS = Object.keys(TABS) as Tab[];
 const METRIC_OF: Record<MapMode, Metric> = { demand: "pickups", shortages: "imbalance" };
@@ -236,7 +236,7 @@ export default function Dashboard() {
     if (page !== "flows") return describeSaved(f);
     const fq = f as Query;
     return ["Flows from " + (zoneName.get(fq.originZoneId) ?? `zone ${fq.originZoneId}`), monthLabel(fq.month),
-            DAY_TYPES.find((d) => d.value === fq.dayType)?.label, bucketLabel(fq.timeBucket)].join(" · ");
+            DAY_TYPES.find((d) => d.value === fq.dayType)?.label, bucketLabel(fq.timeBucket)].join(", ");
   }, [zoneName]);
 
   // Opening the planner with what this page is filtered to: the boroughs (all
@@ -297,11 +297,11 @@ export default function Dashboard() {
                        <SavedViews page="dashboard" pages={["dashboard", "flows"]} current={viewState}
                                    currentFor={flowViewState} describe={describeView} onOpen={openView} />
                        <button className="primary allocate" onClick={allocate}
-                               title={`Open the Allocation Planner with these filters: ${carried.join(" · ")}`}>
+                               title={`Open the Allocation Planner with these filters: ${carried.join(", ")}`}>
                          Allocate taxis
                          {watched.length > 0 && (
                            <span className="allocate-watch">
-                             · {watched.length} {watched.length === 1 ? "zone" : "zones"} watched
+                             ({watched.length} {watched.length === 1 ? "zone" : "zones"} watched)
                            </span>
                          )}
                          {" →"}
@@ -319,9 +319,9 @@ export default function Dashboard() {
               <div className="card-head">
                 <div className="segmented" role="group" aria-label="Colour the map by">
                   <button className={short ? "" : "on"} onClick={() => setMapMode("demand")}
-                          title="Pickups: where people want taxis">Demand</button>
+                          title="Where people take taxis: darker zones are busier">Demand</button>
                   <button className={short ? "on" : ""} onClick={() => setMapMode("shortages")}
-                          title="Pickups minus drop-offs: where taxis leave faster than they arrive">Shortages</button>
+                          title="Where taxis run out: red zones lose more taxis than they gain, blue zones collect more than they need">Shortages</button>
                 </div>
                 {summary.loading && summary.data && <span className="tag">updating…</span>}
                 <MapLegend short={short} flowOpen={!!flow} compared={compareIds.length > 0} />
@@ -385,12 +385,11 @@ export default function Dashboard() {
       {(
         <>
           <div className="section-head" id="trends" ref={trendsRef}>
-            <h2>{TABS.trends.title} <TrendsHelp /></h2>
-            <p className="muted">{TABS.trends.question}</p>
+            <h2>{TABS.trends.title}</h2>
           </div>
           <div className="card">
             <div className="card-title">
-              Pickups over time <div className="card-sub">Red dots mark unusual days.</div>
+              Pickups over time
             </div>
             {series.error && <div className="alert error"><span>{series.error}</span></div>}
             {series.data
@@ -424,7 +423,7 @@ function MapLegend({ short, flowOpen, compared }: { short: boolean; flowOpen: bo
   );
 }
 
-// The days far from a typical day of the same weekday, largest change first.
+// The days far from a normal day of the same day of the week, largest change first.
 function UnusualDays({ series }: { series: Series }) {
   const byDate = new Map(series.points.map((p) => [p.localDate, p]));
   const days = series.unusualDays.map((d) => byDate.get(d)!).filter(Boolean);
@@ -434,8 +433,7 @@ function UnusualDays({ series }: { series: Series }) {
       <div className="card-title">
         Unusual days
         <div className="card-sub">
-          Days with at least {pct}% more or fewer pickups than a typical {""}
-          day of the same weekday over these dates. The planner's averages include them.
+          At least {pct}% busier or quieter than expected for that day of the week.
         </div>
       </div>
       {days.length === 0 ? (
@@ -443,7 +441,7 @@ function UnusualDays({ series }: { series: Series }) {
       ) : (
         <table className="unusual">
           <thead>
-            <tr><th>Day</th><th className="num">Pickups</th><th className="num">Typical {""}for that weekday</th><th className="num">Change</th></tr>
+            <tr><th>Day</th><th className="num">Pickups</th><th className="num" title="The middle value of the same day of the week over your chosen dates, e.g. of all the Mondays">Expected</th><th className="num">Change</th></tr>
           </thead>
           <tbody>
             {days.map((p) => (
@@ -469,32 +467,12 @@ function UnusualDays({ series }: { series: Series }) {
 // How to use Zone maps, behind the "?" beside the title.
 function ZoneMapsHelp() {
   return (
-    <HelpTip title="How to use Zone maps" steps={[
-      { title: "Set the filters", text: "Dates, days, hours and boroughs. Every number on the page follows them." },
-      { title: "Read the totals", text: "Pickups a day (or an hour, when hours are filtered), whether taxis run short or pile up, what a trip earns and how long it takes." },
-      { title: "Switch the map", text: <>
-          <strong>Demand</strong> shows where people want taxis. <strong>Shortages</strong> shows zones losing taxis
-          in red and zones collecting them in blue.</> },
-      { title: "Click a zone", text: <>
-          See where its trips go. <strong>+</strong> adds it to a side-by-side comparison of up to three zones.</> },
-      { title: "Allocate taxis", text: "Opens the Allocation Planner on your shift and boroughs, with the zones you looked at, ready to assign taxis." },
-    ]} tip={<><strong>Views</strong> saves this setup so you can reopen it later.</>} />
+    <HelpTip title="How to use Zone maps" points={[
+      <>Click a zone to see where its passengers go.</>,
+      <>Press <strong>+</strong> on a zone to compare up to three side by side.</>,
+      <><strong>Allocate taxis</strong> opens the planner with your filters and the zones you looked at.</>,
+    ]} />
   );
 }
 
 // How to read Daily trends, behind the "?" beside its heading.
-function TrendsHelp() {
-  return (
-    <HelpTip title="How to read Daily trends" steps={[
-      { title: "Read the trend", text: <>
-          The gold line is pickups per day; the black line is the 7-day moving average, so a steady line means
-          a steady pattern.</> },
-      { title: "Spot unusual days", text: <>
-          Red dots, listed in the table below, are days at least 30% above or below a typical day of the same
-          weekday.</> },
-      { title: "Weigh the plan", text: <>
-          The Allocation Planner averages every day, unusual ones included, so a plan fits a normal day, not
-          every day.</> },
-    ]} tip={<>Pick 31 days or fewer in the filters to see the chart per hour.</>} />
-  );
-}

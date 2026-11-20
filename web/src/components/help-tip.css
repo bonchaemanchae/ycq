@@ -1,10 +1,10 @@
 /* The "?" beside a page title and its pop-up (HelpTip.tsx). */
 
-.help-tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 10px; }
+.help-tip { position: relative; display: inline-flex; vertical-align: super; margin-left: 4px; }
 .help-icon {
-  width: 24px; height: 24px; padding: 0; border-radius: 50%;
-  display: grid; place-items: center; font-size: 0.9375rem; font-weight: 800; line-height: 1;
-  color: var(--muted); background: var(--surface); border: 1.5px solid var(--line-strong);
+  width: 17px; height: 17px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; font-size: 0.6875rem; font-weight: 800; line-height: 1;
+  color: var(--muted); background: transparent; border: 1.25px solid #b9b6ac;
 }
 .help-icon:hover:not(:disabled), .help-icon.on { color: var(--ink); background: var(--yellow); border-color: var(--yellow-dark); }
 
@@ -25,7 +25,7 @@
 
 .help-title { font-size: 1.0625rem; font-weight: 750; }
 .help-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.help-steps li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
+.help-steps > li { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; }
 .help-num {
   width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
   background: var(--yellow-soft); color: #7a5d00; font-size: 0.8125rem; font-weight: 800;
@@ -33,3 +33,7 @@
 .help-step-title { display: block; font-weight: 700; }
 .help-step-text { display: block; color: #4a4944; }
 .help-foot { padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }
+
+
+/* a few short points instead of numbered steps */
+.help-points { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; }

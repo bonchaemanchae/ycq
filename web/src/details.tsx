@@ -49,7 +49,7 @@ export function DatabaseDetails() {
       {health && (
         <span className={`pill ${ok ? "" : "bad"}`}>
           <span className="pill-dot" />
-          PostgreSQL {health.postgres ? "up" : "down"} · MongoDB {health.mongodb ? "up" : "down"}
+          PostgreSQL {health.postgres ? "up" : "down"}, MongoDB {health.mongodb ? "up" : "down"}
         </span>
       )}
       <label className="switch" title="Show which database answered each chart and how long it took, on every page">

@@ -30,7 +30,7 @@ export default function RejectedRows({ batch }: { batch: ImportBatch }) {
           <select value={code} onChange={(e) => { setCode(e.target.value); setPage(1); }}>
             <option value="">All rules</option>
             {batch.rejects.map((r) => (
-              <option key={r.code} value={r.code}>{r.code} · {PLAIN[r.code] ?? r.description} ({n(r.rows)})</option>
+              <option key={r.code} value={r.code}>{r.code}: {PLAIN[r.code] ?? r.description} ({n(r.rows)})</option>
             ))}
           </select>
         </label>
@@ -70,7 +70,7 @@ export default function RejectedRows({ batch }: { batch: ImportBatch }) {
           </div>
           <div className="pager">
             <button onClick={() => setPage(page - 1)} disabled={page <= 1}>Previous</button>
-            <span className="muted small">Page {data.page} of {data.pages} · {n(data.total)} rows</span>
+            <span className="muted small">Page {data.page} of {data.pages}, {n(data.total)} rows</span>
             <button onClick={() => setPage(page + 1)} disabled={page >= data.pages}>Next</button>
           </div>
         </>

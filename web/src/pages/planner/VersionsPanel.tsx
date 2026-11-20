@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
-import { DAYS, formatDate, hourLabel, type VersionSummary } from "./types";
+import { DAYS, endLabel, formatDate, hourLabel, type VersionSummary } from "./types";
 
 type Props = {
+  planName: string;
   versions: VersionSummary[];
   openVersion: number | null;
   onOpen: (versionNo: number) => void;
   onCompare: (from: number, to: number) => void;
 };
 
-// Saved versions of the selected plan: open one, or compare two.
-export default function VersionsPanel({ versions, openVersion, onOpen, onCompare }: Props) {
+// Saved versions of the selected plan, one compact row each: when it was
+// saved, its shift as tags, its seal, and a button to open it in the planner.
+// Two versions can be compared below.
+export default function VersionsPanel({ planName, versions, openVersion, onOpen, onCompare }: Props) {
   const [from, setFrom] = useState<number | null>(null);
   const [to, setTo] = useState<number | null>(null);
 
@@ -22,40 +25,51 @@ export default function VersionsPanel({ versions, openVersion, onOpen, onCompare
   if (versions.length === 0) {
     return (
       <div className="card">
-        <div className="card-title">Versions</div>
-        <p className="muted small">Every save becomes a new version. Nothing saved yet.</p>
+        <div className="card-title">{planName}</div>
+        <p className="muted small">No versions yet. Open the planner and save one.</p>
       </div>
     );
   }
 
   return (
     <div className="card">
-      <div className="card-title">Versions</div>
+      <div className="card-title">
+        {planName} <span className="muted versions-count">{versions.length} {versions.length === 1 ? "version" : "versions"}</span>
+      </div>
       <ul className="version-list">
         {versions.map((v) => (
           <li key={v.version_no} className={v.version_no === openVersion ? "selected" : ""}>
-            <div>
-              <div>
-                <strong>v{v.version_no}</strong>{" "}
-                <span className="muted small">{formatDate(v.created_at)}</span>
-              </div>
-              <div className="muted small">
-                {DAYS[v.iso_dow - 1].slice(0, 3)} {hourLabel(v.start_hour)}–{hourLabel(v.end_hour)} · fleet{" "}
-                {v.fleet_size} · {v.zones_used} zones
-                {v.edited_rows > 0 && <> · <span className="tag">{v.edited_rows} edited</span></>}
-              </div>
-              {v.note && <div className="small note">“{v.note}”</div>}
-              {v.seal_problem ? (
-                <div className="small"><span className="tag warn">! {v.seal_problem}</span></div>
-              ) : v.hash && (
-                <div className="muted small" title={`SHA-256 ${v.hash}, chained to the version before it`}>
-                  ✓ sealed <code>{v.hash.slice(0, 12)}</code>
-                </div>
-              )}
+            <div className="version-main">
+              <span className="version-id">
+                <strong>v{v.version_no}</strong> <span className="muted small">{formatDate(v.created_at)}</span>
+              </span>
+              <span className="version-tags">
+                <span className="vpill">{DAYS[v.iso_dow - 1].slice(0, 3)} {hourLabel(v.start_hour)}–{endLabel(v.end_hour)}</span>
+                <span className="vpill">{v.fleet_size.toLocaleString()} taxis</span>
+                <span className="vpill">{v.zones_used} zones</span>
+                {v.edited_rows > 0 && (
+                  <span className="vpill edits" title="Numbers changed by hand from the planner's proposal">
+                    {v.edited_rows} {v.edited_rows === 1 ? "edit" : "edits"}
+                  </span>
+                )}
+              </span>
+              {v.note && <span className="version-note">“{v.note}”</span>}
             </div>
-            <button onClick={() => onOpen(v.version_no)} disabled={v.version_no === openVersion}>
-              {v.version_no === openVersion ? "Opened" : "Open"}
-            </button>
+            {v.seal_problem ? (
+              <span className="seal bad" title={v.seal_problem}>⚠ Changed after saving</span>
+            ) : v.hash && (
+              <span className="seal" title={`Sealed with SHA-256 when it was saved, and chained to the version before it, so any later change would be detected.\n${v.hash}`}>
+                <span className="seal-badge">✓ Verified</span>
+                <code>{v.hash.slice(0, 7)}</code>
+              </span>
+            )}
+            <span className="version-open">
+              {v.version_no === openVersion && <span className="tag">In the planner now</span>}
+              <button onClick={() => onOpen(v.version_no)}
+                      title={`Loads this version's shift and taxis into the planner. Saving there creates a new version; v${v.version_no} stays sealed.`}>
+                Open in planner
+              </button>
+            </span>
           </li>
         ))}
       </ul>

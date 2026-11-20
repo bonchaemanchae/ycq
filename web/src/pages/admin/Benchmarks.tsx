@@ -65,7 +65,7 @@ export default function Benchmarks({ run }: { run: BenchmarkRun }) {
         Questions 1 to 4 ask the same hourly zone summaries, stored three ways. Question 5 asks for the
         Flow Explorer's top 10 destinations, the case MongoDB was chosen for. Questions 6 and 7 are the
         Analytical Dashboard's heaviest, over all three months. Each question ran {runs} times;
-        bars show the typical (median) time, so shorter is faster. Every store gave the same answers.
+        bars show the normal (median) time, so shorter is faster. Every store gave the same answers.
         Measured {when(run.run_at)}.
       </p>
 

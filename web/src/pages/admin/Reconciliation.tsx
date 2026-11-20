@@ -49,8 +49,8 @@ export default function Reconciliation({ batches, runs, latest }: {
                   <Check pair={{ label: "Pickups", pg: r.pg_pickups, mongo: r.mongo_pickups }} />
                   <Check pair={{ label: "Drop-offs", pg: r.pg_dropoffs, mongo: r.mongo_dropoffs }} />
                   <p className="muted small recon-foot">
-                    {n(r.zone_hour_mismatches)} zone-hour and {n(r.od_mismatches)} destination differences ·
-                    checked {when(r.finished_at)}
+                    {n(r.zone_hour_mismatches)} zone-hour and {n(r.od_mismatches)} destination differences, checked{" "}
+                    {when(r.finished_at)}
                   </p>
                 </>
               ) : <p className="muted small">No reconciliation run for this month yet.</p>}

@@ -10,6 +10,7 @@ export type Row = {
   score: number;
   sample_size: number;
   selected: boolean;
+  reliable: boolean;      // enough pickups that hour to be recommended (min_sample)
   proposed_taxis: number;
   days: number;
   avg_pickups: number;
@@ -107,6 +108,17 @@ export const METRICS = [
     help: "Median metered fare for that zone, weekday and hour" },
 ] as const;
 
+// Why the settings can't be scored yet, first problem first (empty when they can).
+export function settingsProblems(s: Settings): string[] {
+  const sum = weightSum(s);
+  return [
+    s.fleet_size < 1 && "The fleet needs at least 1 taxi",
+    s.start_hour > s.end_hour && "The shift has to end after it starts",
+    s.borough_ids.length === 0 && "Pick at least one borough",
+    sum !== 1 && `The ranking weights add up to ${sum.toFixed(2)}, not 1`,
+  ].filter(Boolean) as string[];
+}
+
 export const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 export const hourLabel = (h: number) => `${String(h).padStart(2, "0")}:00`;
@@ -127,7 +139,7 @@ export const toRequest = (s: Settings, note?: string) => ({
 });
 
 export const formatDate = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
 
 // --- handing the dashboard's view to the planner ------------------------------
 // The dashboard's Allocate button opens the planner with a link:
@@ -150,20 +162,6 @@ export function limitAllows(l: Limit | null): (dow: number, hour: number) => boo
   const from = l.from ?? 0, to = l.to ?? 23;
   const hourOk = (h: number) => (from <= to ? h >= from && h <= to : h >= from || h <= to);
   return (dow, h) => (l.days.length === 0 || l.days.includes(dow)) && hourOk(h);
-}
-
-// e.g. "Tue, Wed, Thu · 07:00–10:00"; empty when the limit keeps the whole week.
-export function limitLabel(l: Limit): string {
-  const days = l.days.length && l.days.length < 7 ? [...l.days].sort().map((d) => DAYS[d - 1].slice(0, 3)).join(", ") : "";
-  const hours = l.from === null && l.to === null ? "" : `${hourLabel(l.from ?? 0)}–${endLabel(l.to ?? 23)}`;
-  return [days, hours].filter(Boolean).join(" · ");
-}
-
-// Three hours centred on an hour, kept inside the day (the planner's hours
-// can't wrap past midnight).
-export function shiftAround(dow: number, hour: number): Shift {
-  const from = Math.min(Math.max(0, hour - 1), 21);
-  return { dow, from, to: from + 2 };
 }
 
 export function planLink(shift: Shift | null, boroughs: string[], watch: number[] = [], back?: string,
@@ -190,17 +188,6 @@ export function readLimit(search: URLSearchParams): Limit | null {
   const to = m && Number(m[2]) <= 23 ? Number(m[2]) : null;
   if (!days.length && (from === null || to === null)) return null;
   return { days, from: to === null ? null : from, to: from === null ? null : to };
-}
-
-// The busiest shift inside a limit: three hours when the limit allows it,
-// otherwise the longest that fits (the planner's hours can't wrap past midnight).
-export function busiestWithin(grid: Parameters<typeof busiestShifts>[0], limit: Limit | null): Shift | null {
-  const allow = limitAllows(limit);
-  for (let length = 3; length >= 1; length--) {
-    const [best] = busiestShifts(grid, 1, length, allow);
-    if (best) return { dow: best.dow, from: best.from, to: best.to };
-  }
-  return null;
 }
 
 // The busiest `count` shifts of `length` hours, none overlapping, from a
@@ -239,7 +226,6 @@ export function fleetFor(pickupsPerHour: number, tripSec: number | null | undefi
 
 // The end of a shift whose last hour is `to`: 19 ends at 20:00, 23 at midnight.
 export const endLabel = (to: number) => (to === 23 ? "midnight" : hourLabel(to + 1));
-export const shiftLabel = (s: Shift) => `${DAYS[s.dow - 1]} ${hourLabel(s.from)}–${endLabel(s.to)}`;
 
 // --- why a zone was chosen ----------------------------------------------------------
 // The two strongest parts of its score in words, e.g. "Short of taxis (top 5%)
@@ -251,6 +237,30 @@ const WHY: Record<string, string> = {
   pct_pickup: "Busy", pct_imbalance: "Short of taxis", pct_consistency: "Steady", pct_fare: "High fares",
 };
 
+// The reasons worth pointing out on a zone's row. Being busy and short of taxis
+// is why nearly every zone is in the plan, so that isn't repeated; what's
+// shown is what sets a zone apart, or a risk.
+export type Note = { text: string; kind: "plain" | "warn" | "muted"; help: string };
+export function notableNotes(row: Row): Note[] {
+  if (!row.reliable) {
+    return [{ text: "Few trips", kind: "muted",
+              help: "Too few pickups at this hour to recommend; it's in the plan because you added it." }];
+  }
+  const out: Note[] = [];
+  if (row.pct_fare >= 0.9) {
+    out.push({ text: "High fares", kind: "plain", help: "Trips from here pay more than almost anywhere else at this hour." });
+  }
+  if (row.pct_consistency >= 0.9) {
+    out.push({ text: "Steady", kind: "plain",
+               help: "About as busy every week at this hour, so taxis sent here reliably find passengers." });
+  }
+  if (row.pct_consistency < 0.25) {
+    out.push({ text: "Uneven week to week", kind: "warn",
+               help: "Busy on average, but some weeks are much quieter at this hour: a riskier place for many taxis." });
+  }
+  return out;
+}
+
 export function whyLine(row: Row, weights: Settings): string {
   const parts = METRICS
     .map((m) => ({ pct: row[m.pct], weighted: row[m.pct] * weights[m.weight], name: WHY[m.pct] }))
@@ -259,5 +269,5 @@ export function whyLine(row: Row, weights: Settings): string {
     .slice(0, 2)
     .map((m) => `${m.name} (${TOP.find(([t]) => m.pct >= t)![1]})`);
   if (row.pct_consistency < 0.25) parts.push("Uneven week to week");
-  return parts.length ? parts.join(" · ") : "Good all round";
+  return parts.length ? parts.join(", ") : "Good all round";
 }

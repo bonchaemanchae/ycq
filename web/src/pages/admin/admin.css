@@ -62,25 +62,10 @@
 .swatch.warned, .seg.warned { background: var(--warned); }
 .swatch.rejected, .seg.rejected { background: var(--rejected); }
 
-/* month bars */
-.month-bars { display: flex; flex-direction: column; gap: 6px; }
-.month-row {
-  display: grid; grid-template-columns: 80px minmax(0, 1fr) 300px; align-items: center; gap: 14px;
-  width: 100%; padding: 8px 10px; text-align: left; font-weight: 400;
-  border: 1px solid transparent; border-radius: 10px; background: none;
-}
-.month-row:hover:not(:disabled) { background: #faf9f6; border-color: var(--line); }
-.month-row.selected { background: var(--yellow-soft); border-color: #f0dc8a; }
-.month-label { font-weight: 650; font-variant-numeric: tabular-nums; }
 .stack { display: flex; gap: 2px; height: 18px; }
 .seg { min-width: 4px; height: 100%; }
 .seg:first-child { border-radius: 4px 0 0 4px; }
 .seg:last-child { border-radius: 0 4px 4px 0; }
-.month-figures { font-size: 0.875rem; font-variant-numeric: tabular-nums; }
-@media (max-width: 800px) {
-  .month-row { grid-template-columns: 70px minmax(0, 1fr); }
-  .month-figures { grid-column: 1 / -1; }
-}
 
 /* reason bars */
 .reason-bars { list-style: none; margin: 0; padding: 0; }

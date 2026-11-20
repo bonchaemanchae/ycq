@@ -136,7 +136,7 @@ export default function SavedViews({ page, pages = [page], current, currentFor, 
   return (
     <div className="saved-views" ref={menu}>
       <button className={`views-button ${shown ? "on" : ""}`} onClick={() => setShown(!shown)}
-              aria-expanded={shown} title="Save what you are looking at, or open a saved view">
+              aria-expanded={shown} title="Save these filters to reopen later, or open a saved view">
         Views{views?.length ? ` (${views.length})` : ""} ▾
       </button>
       {shown && (

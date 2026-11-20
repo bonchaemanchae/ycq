@@ -108,7 +108,7 @@ export default function FlowsPanel({ query: q, onChange, months, originName, sli
                   </div>
                   <div className="flow-bar"><span style={{ width: `${(d.share / max) * 100}%` }} /></div>
                   <div className="muted small">
-                    {d.borough} · avg fare {money(d.averageFare)}
+                    {d.borough}, average fare {money(d.averageFare)}
                   </div>
                 </div>
                 <div className="flow-num">

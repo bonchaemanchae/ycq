@@ -36,7 +36,7 @@ export default function ZoneList({ title, columns, zones, value, onOpen, compare
                 <span className="zl-rank">{i + 1}</span>
                 <span className="zl-name">
                   {z.zoneName}
-                  <span className="muted small">{z.borough} · {v.detail}</span>
+                  <span className="muted small">{z.borough}, {v.detail}</span>
                 </span>
                 <span className={`zl-value ${v.mainClass ?? ""}`}>{v.main}</span>
               </button>

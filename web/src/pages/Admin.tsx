@@ -93,7 +93,7 @@ export default function Admin() {
             ? `Needs attention: ${failed.join(", ")} ${failed.length === 1 ? "has" : "have"} not passed the database cross-check`
             : `All good: ${months.length} ${months.length === 1 ? "month" : "months"} loaded and both databases agree`}
         </strong>
-        <span className="muted"> · {months[0]}{months.length > 1 ? ` to ${months[months.length - 1]}` : ""},{" "}
+        <span className="muted">. {months[0]}{months.length > 1 ? ` to ${months[months.length - 1]}` : ""},{" "}
           {n(batches.reduce((s, b) => s + b.rows_accepted, 0))} trips available for analysis</span>
       </div>
     </div>
@@ -117,11 +117,11 @@ export default function Admin() {
           <div className="card">
             <div className="split">
               <ReasonBars
-                title={`Why rows were rejected · ${batch.month}`}
+                title={`Why rows were rejected in ${batch.month}`}
                 explain="Rejected rows can't be trusted at all, so they are kept aside with their reason and never counted."
                 reasons={batch.rejects} base={batch.rows_rejected} tone="rejected" />
               <ReasonBars
-                title={`Warnings on kept trips · ${batch.month}`}
+                title={`Warnings on kept trips in ${batch.month}`}
                 explain="The trip happened, but one value looks wrong. Share is of all kept trips; one trip can have several warnings."
                 reasons={batch.warnings} base={batch.rows_accepted} tone="warned" />
             </div>

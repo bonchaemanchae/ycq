@@ -56,7 +56,7 @@ export default function ImportsTable({ batches, selected, onSelect }: {
                   <td>
                     <div>{b.source_file}</div>
                     <div className="muted small" title="SHA-256 checksum, checked against the pinned value">
-                      SHA-256 <code>{b.checksum_prefix}…</code> · {b.status}
+                      SHA-256 <code>{b.checksum_prefix}…</code>, {b.status}
                     </div>
                   </td>
                   <td className="small">{when(b.finished_at)}</td>

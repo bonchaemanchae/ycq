@@ -16,8 +16,9 @@ Scoring, for every zone and hour on the chosen weekday (all loaded months):
   median fare       from zone_weekday_hour_fare
 Each metric becomes 0-1 within its hour with cume_dist(), the weights combine
 them, the best max_zones_per_hour zones are kept, and the fleet is split in
-proportion to score by the largest-remainder method, so every hour adds up to
-exactly fleet_size (the rule the 006/011 triggers enforce on save).
+proportion to score x average pickups (so busier zones get more taxis, not
+roughly the same number each) by the largest-remainder method, so every hour
+adds up to exactly fleet_size (the rule the 006/011 triggers enforce on save).
 """
 import math
 import statistics
@@ -82,7 +83,14 @@ STATS_SQL = """
 SCORE_SQL = """
 WITH stats AS (""" + STATS_SQL + """),
 candidates AS (
+    -- Every zone of the chosen boroughs. Only `reliable` ones (at least
+    -- min_sample pickups observed that hour) are recommended; the others are
+    -- scored among themselves and ranked after them, so the analyst can still
+    -- give them taxis, and the reliable zones' scores are the same as if the
+    -- others weren't there. Zones without a map shape can't be saved
+    -- (sql/012), so they're left out unless they're reliable.
     SELECT s.*,
+           s.trips >= %(min_sample)s AS reliable,
            -- 1 / (1 + coefficient of variation); a zone with no pickups gets 0
            CASE WHEN s.avg_pickups > 0
                 THEN 1 / (1 + s.sd_pickups / s.avg_pickups) ELSE 0 END    AS consistency,
@@ -93,15 +101,17 @@ candidates AS (
           AND f.iso_dow = %(iso_dow)s
           AND f.local_hour = s.hour
     WHERE s.trips >= %(min_sample)s
+       OR EXISTS (SELECT 1 FROM taxi_zone g WHERE g.location_id = s.location_id AND g.geom IS NOT NULL)
 ),
 percentiles AS (
-    -- Each metric as a 0-1 percentile within its hour. A missing median fare
-    -- (no metered trips) counts as 0, so it ranks lowest on fare.
+    -- Each metric as a 0-1 percentile within its hour, among the reliable
+    -- zones (or among the others). A missing median fare (no metered trips)
+    -- counts as 0, so it ranks lowest on fare.
     SELECT *,
-           cume_dist() OVER (PARTITION BY hour ORDER BY avg_pickups)              AS pct_pickup,
-           cume_dist() OVER (PARTITION BY hour ORDER BY avg_imbalance)            AS pct_imbalance,
-           cume_dist() OVER (PARTITION BY hour ORDER BY consistency)              AS pct_consistency,
-           cume_dist() OVER (PARTITION BY hour ORDER BY coalesce(median_fare, 0)) AS pct_fare
+           cume_dist() OVER (PARTITION BY hour, reliable ORDER BY avg_pickups)              AS pct_pickup,
+           cume_dist() OVER (PARTITION BY hour, reliable ORDER BY avg_imbalance)            AS pct_imbalance,
+           cume_dist() OVER (PARTITION BY hour, reliable ORDER BY consistency)              AS pct_consistency,
+           cume_dist() OVER (PARTITION BY hour, reliable ORDER BY coalesce(median_fare, 0)) AS pct_fare
     FROM candidates
 ),
 scored AS (
@@ -115,17 +125,27 @@ scored AS (
 ),
 ranked AS (
     SELECT *,
-           row_number() OVER (PARTITION BY hour ORDER BY score DESC, location_id) AS rank
+           row_number() OVER (PARTITION BY hour ORDER BY reliable DESC, score DESC, location_id) AS rank
     FROM scored
+),
+weighted AS (
+    -- The score picks the zones; how many taxis each gets follows its demand:
+    -- score x average pickups, so a zone with twice the pickups gets about
+    -- twice the taxis. If the chosen zones have no pickups at all that hour,
+    -- the score alone decides.
+    SELECT *,
+           reliable AND rank <= %(max_zones)s AS selected,
+           sum(score * avg_pickups) FILTER (WHERE reliable AND rank <= %(max_zones)s) OVER (PARTITION BY hour) AS demand_total,
+           sum(score)               FILTER (WHERE reliable AND rank <= %(max_zones)s) OVER (PARTITION BY hour) AS score_total
+    FROM ranked
 ),
 shares AS (
     SELECT *,
-           rank <= %(max_zones)s AS selected,
-           CASE WHEN rank <= %(max_zones)s THEN
-               %(fleet_size)s * score
-               / sum(score) FILTER (WHERE rank <= %(max_zones)s) OVER (PARTITION BY hour)
+           CASE WHEN selected THEN
+               %(fleet_size)s * CASE WHEN demand_total > 0 THEN score * avg_pickups / demand_total
+                                     ELSE score / score_total END
            END AS exact_share
-    FROM ranked
+    FROM weighted
 ),
 floored AS (
     SELECT *,
@@ -144,6 +164,7 @@ SELECT f.hour,
        f.score,
        f.trips                                        AS sample_size,
        f.selected,
+       f.reliable,
        CASE WHEN f.selected
             THEN f.base + (f.remainder_rank <= f.leftover)::int
             ELSE 0 END                                AS proposed_taxis,
@@ -181,9 +202,12 @@ def score(conn: psycopg.Connection, p: PlanParams) -> list[dict]:
         return cur.execute(SCORE_SQL, _sql_params(p)).fetchall()
 
 
-def empty_hours(p: PlanParams, rows: list[dict]) -> list[int]:
-    """Hours where no zone passed the filters, so nothing can be allocated."""
+def empty_hours(p: PlanParams, rows: list[dict],
+                overrides: dict[tuple[int, int], int] | None = None) -> list[int]:
+    """Hours with no recommended zone (none had min_sample pickups) and no
+    taxis placed by the analyst either, so nothing would be allocated."""
     covered = {r["hour"] for r in rows if r["selected"]}
+    covered |= {h for (h, _), taxis in (overrides or {}).items() if taxis > 0}
     return [h for h in p.hours if h not in covered]
 
 
@@ -196,8 +220,9 @@ def save_version(conn: psycopg.Connection, owner_user_id: int, plan_id: int,
                  p: PlanParams, overrides: dict[tuple[int, int], int] | None = None) -> int:
     """Score again and save the result as the plan's next version.
 
-    overrides maps (hour, location_id) to the analyst's final taxis. A zone
-    outside the proposal can be added if it passed the filters. Every hour
+    overrides maps (hour, location_id) to the analyst's final taxis. Any zone
+    of the chosen boroughs can be added, including ones with too few pickups
+    to be recommended. Every hour
     must still add up to fleet_size, or the whole save is rolled back.
     Returns the new version_no.
     """
@@ -214,13 +239,14 @@ def save_version(conn: psycopg.Connection, owner_user_id: int, plan_id: int,
             raise PlanNotFound(f"plan {plan_id} not found")
 
         rows = score(conn, p)
-        if missing := empty_hours(p, rows):
+        if missing := empty_hours(p, rows, overrides):
             raise PlanError(
-                f"no zone has at least {p.min_sample} pickups at hour(s) "
-                f"{', '.join(map(str, missing))}; lower the minimum sample or add boroughs")
+                f"no zone has at least {p.min_sample} pickups to recommend at hour(s) "
+                f"{', '.join(map(str, missing))}; place taxis there yourself or add boroughs")
+        # Any zone of the chosen boroughs can be given taxis, recommended or not.
         eligible = {(r["hour"], r["location_id"]) for r in rows}
         if unknown := sorted(set(overrides) - eligible):
-            raise PlanError(f"zones not eligible for these settings: {unknown}")
+            raise PlanError(f"zones not in the chosen boroughs (or outside the shift's hours): {unknown}")
 
         version_no = conn.execute(
             """SELECT coalesce(max(version_no), 0) + 1 FROM allocation_plan_version

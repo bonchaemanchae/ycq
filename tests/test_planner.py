@@ -61,6 +61,30 @@ def test_preview_splits_the_whole_fleet_every_hour(conn, setup):
     assert rows[0]["hour"] == 8 and rows[0]["location_id"] == 1
 
 
+def test_split_follows_demand_not_just_score(conn, setup):
+    # Taxis follow score x average pickups: within an hour, a zone with more
+    # of it never gets fewer taxis, and each is within one taxi of its exact share.
+    _, _, _, manhattan = setup
+    fleet = 50
+    rows = planner.preview(conn, params(manhattan, fleet_size=fleet, max_zones_per_hour=3, start_hour=0, end_hour=23))
+    by_hour = {}
+    for r in rows:
+        by_hour.setdefault(r["hour"], []).append(r)
+    checked = 0
+    for hour_rows in by_hour.values():
+        weights = [float(r["score"]) * float(r["avg_pickups"]) for r in hour_rows]
+        total = sum(weights)
+        assert sum(r["proposed_taxis"] for r in hour_rows) == fleet
+        if total == 0:
+            continue                      # no pickups at all: the score alone decides
+        for r, w in zip(hour_rows, weights):
+            assert abs(r["proposed_taxis"] - fleet * w / total) < 1.01
+        pairs = sorted(zip(weights, (r["proposed_taxis"] for r in hour_rows)))
+        assert all(a[1] <= b[1] for a, b in zip(pairs, pairs[1:]) if a[0] < b[0])
+        checked += 1
+    assert checked > 0
+
+
 def test_save_creates_numbered_versions(conn, setup):
     owner, _, plan_id, manhattan = setup
     assert planner.save_version(conn, owner, plan_id, params(manhattan)) == 1
@@ -113,9 +137,30 @@ def test_hour_with_no_eligible_zone_is_refused(conn, setup):
         planner.save_version(conn, owner, plan_id, params(manhattan, min_sample=2))
 
 
+def test_zone_with_too_few_pickups_can_still_be_given_taxis(conn, setup):
+    # min_sample=2: zone 1 has one Monday pickup at 9 AM, so nothing is
+    # recommended at 9, but the analyst can still station the fleet there.
+    owner, _, plan_id, manhattan = setup
+    p = params(manhattan, min_sample=2)
+    rows = [r for r in planner.score(conn, p) if r["hour"] == 9]
+    assert rows and not any(r["selected"] or r["reliable"] for r in rows)
+    planner.save_version(conn, owner, plan_id, p, {(9, rows[0]["location_id"]): p.fleet_size})
+    results = planner.get_version(conn, owner, plan_id, 1)["results"]
+    assert sum(r["final_taxis"] for r in results if r["hour"] == 9) == p.fleet_size
+
+
+def test_unreliable_zones_rank_after_reliable_ones(conn, setup):
+    _, _, _, manhattan = setup
+    rows = planner.score(conn, params(manhattan, min_sample=2, max_zones_per_hour=3))
+    for h in {r["hour"] for r in rows}:
+        flags = [r["reliable"] for r in sorted((r for r in rows if r["hour"] == h), key=lambda r: r["rank"])]
+        assert flags == sorted(flags, reverse=True)
+        assert all(r["reliable"] for r in rows if r["hour"] == h and r["selected"])
+
+
 def test_unknown_zone_in_edits_is_refused(conn, setup):
     owner, _, plan_id, manhattan = setup
-    with pytest.raises(PlanError, match="not eligible"):
+    with pytest.raises(PlanError, match="not in the chosen boroughs"):
         planner.save_version(conn, owner, plan_id, params(manhattan), {(8, 264): 1})
 
 

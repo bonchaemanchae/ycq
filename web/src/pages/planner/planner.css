@@ -1,15 +1,9 @@
 /* Allocation Planner only. Shared colours and controls are in src/styles.css. */
 
 /* Saved plans: plans on the left, the chosen plan's versions on the right */
-.saved-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 16px; align-items: start; }
+.saved-layout { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 16px; align-items: start; }
 @media (max-width: 1000px) { .saved-layout { grid-template-columns: minmax(0, 1fr); } }
 
-/* advanced settings */
-.advanced { margin-bottom: 4px; border: 1px dashed var(--line-strong); border-radius: 12px; padding: 10px 14px; }
-.advanced[open] { border-style: solid; background: #fcfbf8; }
-.advanced summary { cursor: pointer; font-weight: 600; font-size: 0.9375rem; }
-.advanced[open] summary { margin-bottom: 12px; }
-.advanced .form-grid { margin-bottom: 14px; }
 
 .inline-form { display: flex; gap: 6px; margin-bottom: 12px; }
 .inline-form input { flex: 1; min-width: 0; }
@@ -27,7 +21,7 @@
 .plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 8px; }
 .plan-actions button:not(.link) { padding: 4px 10px; }
 .plan-list .inline-form { padding: 6px; margin: 0; }
-.version-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 10px; }
+.version-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 12px; border-bottom: 1px solid var(--line); border-radius: 0; margin: 0; }
 .version-list button { padding: 4px 10px; flex-shrink: 0; }
 .note { font-style: italic; color: #4a4944; margin-top: 2px; }
 .compare-form { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -35,14 +29,8 @@
 .compare-form button { padding: 4px 10px; margin-left: auto; }
 
 /* settings */
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; margin-bottom: 14px; }
 .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
-.form-grid .field { margin-bottom: 0; }
 .field > span { font-size: 0.875rem; font-weight: 600; color: #4a4944; }
-.weights { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px 20px; }
-.weight { display: grid; grid-template-columns: 10px 1fr 90px 64px; align-items: center; gap: 8px; }
-.weight-label { font-size: 0.9375rem; }
-.weight input[type="number"] { width: 64px; padding: 4px 6px; }
 .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
 
@@ -54,31 +42,80 @@
 .kpi.good span { color: var(--green); }
 .kpi.bad { background: var(--red-soft); border-color: #f2c2bd; }
 .kpi.bad span { color: var(--red); }
-.small-kpis .kpi span { font-size: 1.25rem; }
 
-/* hours */
-.hour-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
-.hour-tab { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-variant-numeric: tabular-nums; }
-.hour-tab .badge { font-size: 0.8125rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
-.hour-tab.ok .badge { background: var(--green-soft); color: var(--green); }
-.hour-tab.bad .badge { background: var(--red-soft); color: var(--red); }
-.hour-tab.active { background: var(--ink); border-color: var(--ink); color: #fff; }
-.hour-tab.active:hover:not(:disabled) { background: #33332f; }
+/* step 1: the shift, the taxis and the boroughs on two lines */
+.settings-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; margin-bottom: 14px; }
+.settings-row .field { margin-bottom: 0; }
+.settings-row select { min-width: 140px; }
+.taxis input { width: 130px; }
+.settings-problem { margin: 0 0 4px; }
+/* the five boxes the same height, so the row reads as one filter bar */
+.settings-row select, .settings-row input, .settings-row .borough-button { height: 44px; box-sizing: border-box; }
+.settings-updating { margin-left: auto; align-self: center; }
 
-.hint {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  background: var(--yellow-soft); border: 1px solid #f0dc8a; border-radius: 10px;
-  padding: 8px 12px; margin-bottom: 10px;
+/* how many taxis the shift's demand needs, and (admins) the ranking weights */
+.ranking-weights { margin: 4px 0 0; font-variant-numeric: tabular-nums; }
+
+/* "Your plan", its status and Save, on one line */
+.plan-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 14px; }
+.plan-title { margin: 0; font-size: 1.625rem; letter-spacing: -0.3px; line-height: 1.2; }
+.plan-actions-right { margin-left: auto; align-self: center; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.status-chip { padding: 4px 12px; border-radius: 999px; font-weight: 700; font-size: 0.9375rem; }
+.status-chip.good { background: var(--green-soft); color: var(--green); }
+.status-chip.warn { background: var(--yellow-soft); color: #735800; }
+.status-chip.bad { background: var(--red-soft); color: var(--red); }
+
+
+/* zones with too few trips to recommend: still editable, with their trips a day */
+.plan-grid .cell.few input { background: #f7f6f2; }
+.plan-grid .few-note { font-size: 0.75rem; color: var(--muted); margin-top: 2px; white-space: nowrap; }
+
+/* "All boroughs ▾" and its checklist */
+.borough-picker { position: relative; }
+.borough-button { min-width: 200px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.borough-menu {
+  position: absolute; z-index: 1100; top: calc(100% + 4px); left: 0; min-width: 220px;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; padding: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
-.hint.over { background: var(--red-soft); border-color: #f2c2bd; }
-.hint button { padding: 4px 10px; }
+.borough-all { display: flex; gap: 12px; padding: 2px 6px 6px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.borough-option { display: flex; align-items: center; gap: 8px; padding: 6px; border-radius: 8px; cursor: pointer; }
+.borough-option:hover { background: var(--yellow-soft); }
 
-/* allocation table */
-.alloc td { padding: 7px 8px; }
-.alloc tr.edited { background: #fffbea; }
-.alloc tr.focus { box-shadow: inset 3px 0 0 var(--yellow-dark); background: var(--yellow-soft); }
+/* step 2: a zone per row, an hour per column; the zone column stays put when
+   a long shift scrolls sideways */
+.plan-stale .plan-scroll { opacity: 0.55; transition: opacity 0.15s; }
+.plan-scroll { overflow-x: auto; }
+.plan-grid { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; }
+.plan-grid col.zone-colw { width: 36%; }
+.plan-grid th, .plan-grid td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.plan-grid .zone-col {
+  position: sticky; left: 0; z-index: 1; background: var(--surface); min-width: 240px; text-align: left;
+  box-shadow: inset -1px 0 0 var(--line);
+}
+
+.plan-grid .hour-col .link { font-weight: 700; color: var(--ink); padding: 0; }
+/* the hour on the map: cool blue-grey, so it never reads as a warning */
+.plan-grid th.on-map, .plan-grid td.on-map { background: #f1f4f9; }
+.plan-grid th.on-map .link { color: #1f4f9e; }
+/* an hour short of demand: warm tint down the column, and the need in the header */
+.plan-grid th.short-col, .plan-grid td.short-col { background: #fff1de; }
+.plan-grid .need-note { text-transform: none; letter-spacing: 0; margin-top: 2px; font-size: 0.8125rem; font-weight: 700; color: #8a4b00; white-space: nowrap; }
+.plan-grid .cell input { width: 74px; text-align: center; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+.plan-grid .cell.edited input { border-color: var(--yellow-dark); background: #fff6d6; font-weight: 700; }
+.plan-grid .cell.not-in input { border-style: dashed; background: transparent; }
+.plan-grid tbody tr.focus .zone-col { box-shadow: inset 3px 0 0 var(--yellow-dark), inset -1px 0 0 var(--line); background: var(--yellow-soft); }
+.plan-grid tbody tr.watched-row .zone-col { box-shadow: inset 3px 0 0 var(--ink), inset -1px 0 0 var(--line); }
+.plan-grid tbody tr:hover { background: none; }
+.plan-grid tfoot td { border-bottom: none; border-top: 2px solid var(--line-strong); font-variant-numeric: tabular-nums; }
+.plan-grid .total.ok { color: var(--green); font-weight: 700; }
+.plan-grid .total.bad { color: var(--red); font-weight: 700; }
+.zone-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.zone-meta .link { padding: 0; }
+.why-row td { background: #fcfbf8; }
+.why-details { position: sticky; left: 10px; max-width: min(760px, 80vw); }
+.why-table th, .why-table td { padding: 4px 10px 4px 0; border: none; font-size: 0.9375rem; }
 .zone-name { font-weight: 600; }
-.alloc td:nth-child(2) { min-width: 190px; }
 .why { font-size: 0.875rem; color: #6b5300; margin: 1px 0 1px; }
 .zone-link { border: none; background: none; padding: 0; text-align: left; }
 .zone-link:hover:not(:disabled) { background: none; text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
@@ -86,75 +123,36 @@
 .score-bar { flex: 1; display: flex; height: 8px; border-radius: 4px; background: #eeece5; overflow: hidden; min-width: 70px; }
 .score-bar span { height: 100%; }
 .score-num { font-variant-numeric: tabular-nums; font-size: 0.875rem; color: #4a4944; }
-.stepper { display: inline-flex; align-items: center; gap: 3px; }
-.stepper button:not(.link) { width: 26px; height: 28px; padding: 0; line-height: 1; }
-.stepper input { width: 56px; text-align: right; padding: 4px 6px; }
 .add-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
 .add-zone select { max-width: 100%; }
+.map-hour { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9375rem; font-weight: 600; }
+.map-hour select { padding: 4px 8px; }
 
 /* map */
 .planner-split { grid-template-columns: minmax(0, 1fr) clamp(280px, 22vw, 540px); }
 @media (max-width: 1250px) { .planner-split { grid-template-columns: minmax(0, 1fr); } }
 .map-col .map { height: clamp(380px, 52vh, 900px); }
-.planner-flows { margin-top: 14px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fcfbf8; }
 .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.875rem; }
 .ramp { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(230, 160, 0, 0.15), rgba(230, 160, 0, 1)); }
 
-/* compare */
-.compare-summary { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
-.compare-summary .arrow { font-size: 1.25rem; color: var(--muted); }
 
-/* save */
-.save-bar {
-  position: sticky; bottom: 12px; z-index: 900;
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
-  background: var(--ink); color: #fff; border-radius: var(--radius); padding: 10px 12px 10px 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+/* the save dialog */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: rgba(28, 28, 26, 0.45);
 }
-.save-label { font-weight: 700; color: var(--yellow); }
-.save-status { flex: 1 1 100%; font-size: 0.875rem; color: #ffcdc7; }
-.save-status.ready { color: #9de8bc; }
-.save-bar input, .save-bar select { flex: 1 1 200px; background: #2c2c29; border-color: #45453f; color: #fff; }
-.save-bar select { flex: 0 1 240px; }
-.save-bar input::placeholder { color: #9a9990; }
+.dialog { width: min(520px, 100%); margin: 0; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25); }
+.dialog .field input, .dialog .field select { width: 100%; }
+.dialog-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
 /* PostgreSQL vs MongoDB */
 .queries { margin-top: 8px; }
 .queries summary { cursor: pointer; color: #2b5fb8; margin-bottom: 8px; }
 .queries pre { white-space: pre-wrap; word-break: break-word; max-height: 320px; }
 
-/* before the first preview */
-.how .steps { margin: 0 0 12px; padding-left: 20px; }
-.how .steps li { margin-bottom: 8px; }
-.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0 0 14px 20px; }
-.metric { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
-.metric .dot { margin-right: 6px; }
 
-/* choosing the shift on the week (WeekGrid.tsx) */
-.week-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); user-select: none; }
-.week-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
-.week-top { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
-.week-top .link { font-size: 0.9375rem; padding: 0 2px; }
-.week-grid .dash-grid { table-layout: fixed; width: 100%; }
-.week-grid .dash-grid th { padding: 3px 1px; font-size: 0.75rem; text-align: center; color: var(--muted); font-weight: 600; }
-.week-grid .dash-grid tbody th { text-align: left; width: 38px; }
-.week-grid .dash-grid td { padding: 0; height: 24px; border: 1px solid var(--surface); cursor: pointer; }
-.week-grid .dash-grid tbody tr:hover { background: none; }
-.week-grid .dash-grid td:hover { outline: 2px solid var(--ink); outline-offset: -2px; }
-.week-grid .dash-grid td.in-shift { box-shadow: inset 0 0 0 2px var(--ink); }
-/* days and hours outside the dashboard's filters: greyed out, still clickable */
-.week-grid .dash-grid td.outside { filter: grayscale(1); opacity: 0.3; }
-.week-grid .dash-grid td.outside.in-shift { opacity: 0.6; }
-
-/* the fleet that keeps up with the chosen shift, under Fleet size */
-.fleet-hint { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; font-size: 0.875rem; color: #735800; font-weight: 600; }
-.fleet-hint .link { font-size: 0.875rem; padding: 0; }
 
 /* status of the allocation and the score legend */
-.plan-status { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; margin-bottom: 14px; font-size: 0.9375rem; color: #4a4944; }
-.plan-status strong { padding: 2px 10px; border-radius: 999px; }
-.plan-status.good strong { background: var(--green-soft); color: var(--green); }
-.plan-status.bad strong { background: var(--red-soft); color: var(--red); }
 .score-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-bottom: 8px; }
 .score-legend .dot { vertical-align: -1px; }
 
@@ -171,5 +169,125 @@
 .watched-item.out strong { color: var(--red); }
 .watched-name { font-weight: 650; color: var(--ink); padding: 0; }
 .watched-add { padding: 2px 10px; font-size: 0.875rem; margin-left: 4px; }
-.alloc tr.watched-row td:first-child { box-shadow: inset 3px 0 0 var(--ink); }
 .tag.watch { background: var(--ink); color: var(--yellow); }
+
+
+/* a zone clicked on the map that isn't in the plan's boroughs: one slim line */
+.zone-note {
+  display: flex; align-items: center; gap: 10px; margin: -4px 0 12px; padding: 6px 8px 6px 12px;
+  border-radius: 10px; background: var(--yellow-soft); border: 1px solid #f0dc8a; color: #5c4700; font-size: 0.9375rem;
+}
+.zone-note-icon { font-weight: 700; }
+.zone-note-text { flex: 1; min-width: 0; }
+.zone-note-add { padding: 4px 12px; font-size: 0.875rem; font-weight: 700; white-space: nowrap; }
+.zone-note-x { padding: 0 4px; color: inherit; }
+
+/* every hour column centred: header, box, totals and demand line up */
+.plan-grid th.hour-col, .plan-grid td.num { text-align: center; }
+
+/* a confirmation (saved, created) in the top corner, gone after a few seconds */
+.toast {
+  position: fixed; top: calc(var(--topbar-h) + 12px); right: 24px; z-index: 3000;
+  display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 12px;
+  background: var(--ink); color: #fff; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  animation: toast-in 0.2s ease-out;
+}
+.toast-tick {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: #2f9e5f; color: #fff; font-size: 0.8125rem;
+}
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
+
+/* the version loaded in the planner, and its open button */
+.version-open { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* a zone's row: the name (and borough when the plan spans several), then only
+   the tags worth reading */
+.zone-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.zone-borough { font-size: 0.875rem; }
+.zone-meta:empty { display: none; }
+.zone-meta { margin-top: 3px; }
+.note-tag { font-size: 0.8125rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: #f1efe8; color: #4a4944; }
+.note-tag.warn { background: var(--yellow-soft); color: #735800; }
+.note-tag.muted { background: transparent; border: 1px dashed var(--line-strong); color: var(--muted); }
+.back-link { display: inline-block; margin-bottom: 6px; font-weight: 600; color: var(--ink); font-size: 0.9375rem; }
+
+/* taxi boxes: plain text boxes, no spinner arrows */
+.plan-grid .cell input { -moz-appearance: textfield; }
+
+/* a zone the manager added: blue, apart from the planner's yellow */
+.pick-tag {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 4px 1px 9px; border-radius: 999px;
+  font-size: 0.8125rem; font-weight: 700; color: #1f4f9e; background: #e8f0fc; border: 1px solid #c6d8f5;
+}
+.pick-x { border: none; background: none; padding: 0 4px; color: inherit; font-size: 0.75rem; line-height: 1; opacity: 0.7; }
+.pick-x:hover:not(:disabled) { background: none; opacity: 1; color: var(--red); }
+.settings-row .taxis input::placeholder { color: #8a887f; }
+.zone-note-sub { font-weight: 500; opacity: 0.8; }
+
+/* the shift, taxis and boroughs stay in view while the plan scrolls, like the
+   dashboard's toolbar */
+.planner .settings {
+  position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 1040;
+  box-shadow: 0 4px 18px rgba(28, 28, 26, 0.08);
+}
+.planner .settings .settings-row { margin-bottom: 0; }
+.planner .settings .ranking-weights, .planner .settings .settings-problem { margin-top: 10px; }
+@media (max-width: 900px) { .planner .settings { position: static; } }
+
+/* where the plan's numbers come from, beside "Your plan" */
+.plan-source { font-size: 0.9375rem; }
+/* the map's outlines in its legend */
+.legend-outline { display: inline-block; width: 14px; height: 10px; margin-left: 6px; border-radius: 2px; }
+.legend-outline.outline-selected { border: 2.5px solid #1c1c1a; }
+.legend-outline.outline-watched { border: 2px dashed #1c1c1a; }
+
+/* Saved plans: compact plan rows with icon actions, one-line versions */
+.plan-row { display: flex; align-items: center; gap: 4px; }
+.plan-row .plan-item { flex: 1; min-width: 0; padding: 6px 10px; }
+.plan-icons { display: inline-flex; gap: 2px; padding-right: 6px; }
+.icon-btn { border: none; background: none; padding: 4px 6px; border-radius: 8px; font-size: 1rem; line-height: 1; color: #4a4944; }
+.icon-btn:hover:not(:disabled) { background: rgba(0, 0, 0, 0.06); }
+.icon-btn.danger-icon:hover:not(:disabled) { background: var(--red-soft); }
+.plan-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 8px 10px; }
+.plan-confirm button { padding: 4px 10px; }
+.versions-count { font-size: 0.9375rem; font-weight: 500; }
+.version-list li.selected { border-radius: 10px; }
+.version-main { flex: 1 1 380px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.version-id { white-space: nowrap; }
+.version-tags { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.vpill { font-size: 0.8125rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: #f1efe8; color: #4a4944; white-space: nowrap; }
+.vpill.edits { background: var(--yellow-soft); color: #735800; }
+.version-note { flex-basis: 100%; font-size: 0.875rem; font-style: italic; color: var(--muted); }
+.seal { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: help; }
+.seal-badge { font-size: 0.8125rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); }
+.seal code { font-size: 0.8125rem; color: var(--muted); background: none; padding: 0; }
+.seal.bad { font-size: 0.8125rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--red-soft); color: var(--red); }
+
+/* comparing two versions: the figures that changed, then zone x hour with the changes */
+.cmp-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.cmp-tile { background: #faf9f5; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.cmp-tile-value { font-size: 1.375rem; font-weight: 800; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.cmp-tile-value.small-value { font-size: 1.0625rem; }
+.cmp-tile-label { font-size: 0.875rem; color: var(--muted); margin-top: 2px; }
+.cmp-grid { table-layout: fixed; width: 100%; border-collapse: collapse; }
+.cmp-grid col.cmp-zone-col { width: 34%; }
+.cmp-grid th, .cmp-grid td { padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.cmp-grid th.num, .cmp-grid td.num { text-align: center; font-variant-numeric: tabular-nums; }
+.cmp-zone { font-weight: 600; }
+.cmp-val { font-weight: 600; }
+.cmp-same .cmp-val { font-weight: 400; color: var(--muted); }
+.cmp-delta { margin-left: 8px; font-size: 0.8125rem; font-weight: 700; }
+.cmp-delta.pos { color: var(--green); }
+.cmp-delta.neg { color: var(--red); }
+.cmp-tag { margin-left: 8px; font-size: 0.75rem; font-weight: 700; padding: 1px 7px; border-radius: 999px; }
+.cmp-tag.added { background: var(--green-soft); color: var(--green); }
+.cmp-tag.removed { background: var(--red-soft); color: var(--red); }
+.cmp-grid tr.removed .cmp-zone { text-decoration: line-through; color: var(--muted); }
+.cmp-more { margin-top: 10px; padding: 0; }
+
+/* spacing instead of dot separators */
+.zone-borough { margin-left: 2px; }
+.versions-count { margin-left: 8px; }
+.legend-gap { margin-left: 8px; }

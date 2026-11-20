@@ -13,7 +13,7 @@ type Props = {
 // has no trips from this zone at all; otherwise it may have had a few.
 function Cell({ entry, month }: { entry: MonthEntry | null; month: MonthHeader }) {
   if (entry) {
-    return <>#{entry.rank} · {count(entry.trips)} <span className="muted">({percent(entry.share)})</span></>;
+    return <>#{entry.rank}, {count(entry.trips)} trips <span className="muted">({percent(entry.share)})</span></>;
   }
   if (!month.found || month.complete) return <>0</>;
   return <span className="muted">not in top 10</span>;
@@ -25,7 +25,7 @@ export default function MonthCompare({ compare, loading, error, originZoneId, on
     <div className="card">
       <div className="card-head">
         <div className="card-title">
-          Compare months <span className="muted">· built from {compare?.basis ?? "each month's top 10 only"}</span>
+          Compare months <span className="muted">(built from {compare?.basis ?? "each month's top 10 only"})</span>
         </div>
         <button className="link" onClick={onClose} aria-label="Close comparison">✕</button>
       </div>
