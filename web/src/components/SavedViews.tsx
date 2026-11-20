@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError, del, patch, post } from "../api";
 import "./saved-views.css";
 
@@ -41,11 +41,22 @@ const same = (a: unknown, b: unknown): boolean => {
   return a === b;
 };
 
-// Saved views: the user's own filter sets for one page, kept in MongoDB
-// (saved_analysis_views). Create, open, update, rename and delete.
+// Saved views: the user's own named views of the page, kept in MongoDB
+// (saved_analysis_views). Create, open, update, rename and delete, from a
+// compact "Views" menu beside the filters.
 export default function SavedViews({ page, pages = [page], current, currentFor, describe, onOpen }: Props) {
   const [views, setViews] = useState<SavedView[] | null>(null);
   const [shown, setShown] = useState(false);
+  const menu = useRef<HTMLDivElement>(null);
+  // the menu closes on a click anywhere else
+  useEffect(() => {
+    if (!shown) return;
+    const close = (e: MouseEvent) => {
+      if (menu.current && !menu.current.contains(e.target as Node)) setShown(false);
+    };
+    window.addEventListener("mousedown", close);
+    return () => window.removeEventListener("mousedown", close);
+  }, [shown]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -90,6 +101,7 @@ export default function SavedViews({ page, pages = [page], current, currentFor, 
   const open = (v: SavedView) => {
     setOpenId(v._id);
     setConfirmDelete(null);
+    setShown(false);
     onOpen(v);
   };
   // A change says which state of the view it was made from. If the view was
@@ -122,25 +134,23 @@ export default function SavedViews({ page, pages = [page], current, currentFor, 
   };
 
   return (
-    <div className="card saved-views">
-      <div className="saved-bar">
-        <div className="saved-title">
-          <span className="card-title">Saved views</span>
-          <span className="card-sub">Name what you are looking at to come back to it. Yours only, kept in MongoDB.</span>
-        </div>
+    <div className="saved-views" ref={menu}>
+      <button className={`views-button ${shown ? "on" : ""}`} onClick={() => setShown(!shown)}
+              aria-expanded={shown} title="Save what you are looking at, or open a saved view">
+        Views{views?.length ? ` (${views.length})` : ""} ▾
+      </button>
+      {shown && (
+      <div className="views-menu" role="dialog" aria-label="Saved views">
         <form className="saved-form" onSubmit={save}>
-          <input placeholder="e.g. JFK weekday evenings" value={name} maxLength={100}
+          <input autoFocus placeholder="Name this view, e.g. JFK weekday evenings" value={name} maxLength={100}
                  onChange={(e) => setName(e.target.value)} disabled={!current} />
-          <button className="primary" disabled={busy || !current || !name.trim()}>Save view</button>
+          <button className="primary" disabled={busy || !current || !name.trim()}>Save</button>
         </form>
-        <button className="link" onClick={() => setShown(!shown)} disabled={!views}>
-          {shown ? "Hide my views" : `My views (${views?.length ?? "…"})`}
-        </button>
-      </div>
+        <p className="muted small views-note">Yours only, kept in MongoDB.</p>
       {error && <div className="alert error"><span>{error}</span></div>}
 
-      {shown && views?.length === 0 && <p className="muted small saved-empty">No saved views yet. Set the page up, name it and save.</p>}
-      {shown && !!views?.length && (
+      {views?.length === 0 && <p className="muted small saved-empty">No saved views yet.</p>}
+      {!!views?.length && (
         <ul className="saved-list">
           {views.map((v) => {
             const isOpen = v._id === openId;
@@ -190,6 +200,8 @@ export default function SavedViews({ page, pages = [page], current, currentFor, 
             );
           })}
         </ul>
+      )}
+      </div>
       )}
     </div>
   );

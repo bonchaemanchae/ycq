@@ -129,15 +129,35 @@ export const toRequest = (s: Settings, note?: string) => ({
 export const formatDate = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-// --- handing a shift to the planner --------------------------------------------
-// The dashboard opens the planner on a shift with a link:
-//   /planner/build?dow=4&from=17&to=19&boroughs=Manhattan,Queens&watch=132,186&back=overview
-// With a weekday and hours the planner previews it at once. `watch` lists the
-// zones the analyst looked at on the dashboard (opened or compared), which the
-// planner highlights and offers to add; `back` is the dashboard section to
-// return to.
+// --- handing the dashboard's view to the planner ------------------------------
+// The dashboard's Allocate button opens the planner with a link:
+//   /planner/build?boroughs=Manhattan,Queens&days=2,3,4&hours=7-9&watch=132,186&back=overview
+// `days` and `hours` are the dashboard's weekday and hour filters: the planner
+// greys out the rest of its week and starts on the busiest shift inside them.
+// When the filters name exactly one shift (one weekday, one hour range) it comes
+// as dow/from/to and the planner starts on that. `watch` lists the zones the
+// analyst looked at (opened or compared), which the planner highlights and
+// offers to add; `back` is the dashboard section to return to.
 
 export type Shift = { dow: number; from: number; to: number };
+
+// The weekdays and hours a handoff narrows the week to (hours may wrap past
+// midnight, e.g. 22 to 2). An empty `days` means every weekday; null hours, all 24.
+export type Limit = { days: number[]; from: number | null; to: number | null };
+
+export function limitAllows(l: Limit | null): (dow: number, hour: number) => boolean {
+  if (!l) return () => true;
+  const from = l.from ?? 0, to = l.to ?? 23;
+  const hourOk = (h: number) => (from <= to ? h >= from && h <= to : h >= from || h <= to);
+  return (dow, h) => (l.days.length === 0 || l.days.includes(dow)) && hourOk(h);
+}
+
+// e.g. "Tue, Wed, Thu · 07:00–10:00"; empty when the limit keeps the whole week.
+export function limitLabel(l: Limit): string {
+  const days = l.days.length && l.days.length < 7 ? [...l.days].sort().map((d) => DAYS[d - 1].slice(0, 3)).join(", ") : "";
+  const hours = l.from === null && l.to === null ? "" : `${hourLabel(l.from ?? 0)}–${endLabel(l.to ?? 23)}`;
+  return [days, hours].filter(Boolean).join(" · ");
+}
 
 // Three hours centred on an hour, kept inside the day (the planner's hours
 // can't wrap past midnight).
@@ -146,7 +166,8 @@ export function shiftAround(dow: number, hour: number): Shift {
   return { dow, from, to: from + 2 };
 }
 
-export function planLink(shift: Shift | null, boroughs: string[], watch: number[] = [], back?: string): string {
+export function planLink(shift: Shift | null, boroughs: string[], watch: number[] = [], back?: string,
+                         limit?: Limit): string {
   const p = new URLSearchParams();
   if (shift) {
     p.set("dow", String(shift.dow));
@@ -154,20 +175,47 @@ export function planLink(shift: Shift | null, boroughs: string[], watch: number[
     p.set("to", String(shift.to));
   }
   if (boroughs.length) p.set("boroughs", boroughs.join(","));
+  if (limit?.days.length) p.set("days", limit.days.join(","));
+  if (limit && (limit.from !== null || limit.to !== null)) p.set("hours", `${limit.from ?? 0}-${limit.to ?? 23}`);
   if (watch.length) p.set("watch", watch.join(","));
   if (back) p.set("back", back);
   return `/planner/build?${p.toString()}`;
 }
 
+// Reads days= and hours= back; null when neither is there or they don't parse.
+export function readLimit(search: URLSearchParams): Limit | null {
+  const days = (search.get("days") ?? "").split(",").map(Number).filter((d) => d >= 1 && d <= 7);
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(search.get("hours") ?? "");
+  const from = m && Number(m[1]) <= 23 ? Number(m[1]) : null;
+  const to = m && Number(m[2]) <= 23 ? Number(m[2]) : null;
+  if (!days.length && (from === null || to === null)) return null;
+  return { days, from: to === null ? null : from, to: from === null ? null : to };
+}
+
+// The busiest shift inside a limit: three hours when the limit allows it,
+// otherwise the longest that fits (the planner's hours can't wrap past midnight).
+export function busiestWithin(grid: Parameters<typeof busiestShifts>[0], limit: Limit | null): Shift | null {
+  const allow = limitAllows(limit);
+  for (let length = 3; length >= 1; length--) {
+    const [best] = busiestShifts(grid, 1, length, allow);
+    if (best) return { dow: best.dow, from: best.from, to: best.to };
+  }
+  return null;
+}
+
 // The busiest `count` shifts of `length` hours, none overlapping, from a
-// weekday x hour grid of average pickups (GET /dashboard/weekdays).
+// weekday x hour grid of average pickups (GET /dashboard/weekdays). `allow`
+// limits them to some weekdays and hours: every hour of a shift must be allowed.
+// `pickups` is the shift's pickups on an average day.
 export type RankedShift = Shift & { pickups: number };
 export function busiestShifts(grid: { isoDayOfWeek: number; hour: number; averagePickups: number }[],
-                              count: number, length = 3): RankedShift[] {
+                              count: number, length = 3,
+                              allow: (dow: number, hour: number) => boolean = () => true): RankedShift[] {
   const cell = new Map(grid.map((g) => [`${g.isoDayOfWeek}:${g.hour}`, g.averagePickups]));
   const windows: RankedShift[] = [];
   for (let dow = 1; dow <= 7; dow++) {
     for (let from = 0; from + length <= 24; from++) {
+      if (!Array.from({ length }, (_, i) => from + i).every((h) => allow(dow, h))) continue;
       let pickups = 0;
       for (let h = from; h < from + length; h++) pickups += cell.get(`${dow}:${h}`) ?? 0;
       windows.push({ dow, from, to: from + length - 1, pickups });
@@ -180,6 +228,13 @@ export function busiestShifts(grid: { isoDayOfWeek: number; hour: number; averag
     if (!chosen.some((x) => x.dow === w.dow && x.from <= w.to && w.from <= x.to)) chosen.push(w);
   }
   return chosen;
+}
+
+// About how many taxis keep up with demand: pickups an hour times the average
+// trip time, i.e. how many are busy with a passenger at once. Rounded to 5.
+export function fleetFor(pickupsPerHour: number, tripSec: number | null | undefined): number | null {
+  if (!tripSec || pickupsPerHour <= 0) return null;
+  return Math.max(1, Math.round((pickupsPerHour * tripSec) / 3600 / 5) * 5);
 }
 
 // The end of a shift whose last hour is `to`: 19 ends at 20:00, 23 at midnight.

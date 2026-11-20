@@ -25,8 +25,8 @@ const NAV: NavGroup[] = [
     base: "/dashboard", label: "Analytical Dashboard",
     icon: icon("M4 13h4v7H4zM10 4h4v16h-4zM16 9h4v11h-4z"),
     items: [
-      { to: "/dashboard/overview", label: "Overview" },
-      { to: "/dashboard/timing", label: "Timing" },
+      { to: "/dashboard/overview", label: "Zone maps" },
+      { to: "/dashboard/trends", label: "Daily trends" },
     ],
   },
   {

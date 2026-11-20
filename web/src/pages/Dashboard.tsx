@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { type Borough } from "../api";
+import HelpTip from "../components/HelpTip";
 import SavedViews, { type SavedView } from "../components/SavedViews";
 import ZoneMap from "../components/ZoneMap";
 import ActivityChart from "./dashboard/ActivityChart";
-import DashboardFilters from "./dashboard/Filters";
-import PlanChooser from "./dashboard/PlanChooser";
+import FilterBar from "./dashboard/Filters";
 import Source from "./dashboard/Source";
 import TotalsRow from "./dashboard/Totals";
 import ZoneCompare from "./dashboard/ZoneCompare";
@@ -22,7 +22,7 @@ import {
   type Centroid, type Compare as MonthComparison, type Query, type Slice, type Zone,
 } from "./flows/types";
 import { useApi } from "./flows/useApi";
-import { DAYS, planLink, shiftLabel, type Shift } from "./planner/types";
+import { DAYS, planLink, type Shift } from "./planner/types";
 import "./dashboard/dashboard.css";
 
 // Analytical Dashboard. Routes are in api/routers/dashboard.py, the MongoDB
@@ -30,26 +30,26 @@ import "./dashboard/dashboard.css";
 // api/dashboard.py; the Flow Explorer reads api/routers/flows.py.
 //
 // Two sections under the same filters:
-//   Overview  where people want taxis and where taxis run short: one map,
+//   Zone maps where people want taxis and where taxis run short: one map,
 //             switched between Demand (pickups) and Shortages (pickups minus
 //             drop-offs), with the zones ranked beside it. A zone opens the
 //             Flow Explorer (where its trips go) in that panel, and + adds it
 //             to the comparison under the map.
-//   Timing    how steady demand is: pickups per day with a moving average,
+//   Daily trends    how steady demand is: pickups per day with a moving average,
 //             and the unusual days, each compared with a typical day of the
 //             same weekday (worked out in the MongoDB pipeline). The week's
 //             busiest hours are chosen in the Allocation Planner instead.
-// The filter bar's Plan button opens the planner on the filtered shift (or
-// asks which shift, when the filters don't name one), taking the boroughs and
-// the zones the analyst looked at with it. The page keeps its state in this
-// tab, so coming back from the planner returns to the same view.
+// The filter bar's Allocate taxis button opens the planner with the filtered
+// boroughs, weekdays and hours and the zones the analyst looked at; the shift
+// itself is chosen there. The page keeps its state in this tab, so coming back
+// from the planner returns to the same view.
 
-type Tab = "overview" | "timing";
+type Tab = "overview" | "trends";
 type MapMode = "demand" | "shortages";
 
 const TABS: Record<Tab, { title: string; question: string }> = {
-  overview: { title: "Overview", question: "Where people want taxis, and where taxis run short." },
-  timing: { title: "Timing", question: "How steady demand is from day to day, and which days broke the pattern." },
+  overview: { title: "Zone maps", question: "" },
+  trends: { title: "Daily trends", question: "How steady demand is from day to day, and which days broke the pattern. Same filters as above." },
 };
 const TAB_KEYS = Object.keys(TABS) as Tab[];
 const METRIC_OF: Record<MapMode, Metric> = { demand: "pickups", shortages: "imbalance" };
@@ -90,13 +90,46 @@ function sliceFor(f: Filters, months: string[]): Omit<Query, "originZoneId"> {
 export default function Dashboard() {
   const { tab: param } = useParams();
   const navigate = useNavigate();
-  const tab: Tab = TAB_KEYS.includes(param as Tab) ? (param as Tab) : "overview";
+  const wanted = param === "timing" ? "trends" : param;   // the section's old address
+  const tab: Tab = TAB_KEYS.includes(wanted as Tab) ? (wanted as Tab) : "overview";
   const [mapMode, setMapMode] = useState<MapMode>(param === "shortages" ? "shortages" : kept.mapMode ?? "demand");
   useEffect(() => {
     // Shortages and Compare zones were their own sections; both are now part of the Overview.
     if (param === "shortages") setMapMode("shortages");
     if (param !== tab) navigate(`/dashboard/${tab}`, { replace: true });
   }, [param, tab, navigate]);
+
+  // The sidebar's Zone maps and Daily trends scroll to their section, and scrolling
+  // past the Daily trends heading marks Daily trends in the sidebar (by replacing the
+  // address, which the sidebar follows). While the page is scrolling itself
+  // to a section, its own scroll events don't count.
+  const trendsRef = useRef<HTMLDivElement>(null);
+  const shownTab = useRef<Tab>(tab);
+  const fromScroll = useRef(false);
+  const autoScrollUntil = useRef(0);
+  useEffect(() => {
+    shownTab.current = tab;
+    if (fromScroll.current) {
+      fromScroll.current = false;
+      return;
+    }
+    autoScrollUntil.current = Date.now() + 900;
+    if (tab === "trends") trendsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    else window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [tab]);
+  useEffect(() => {
+    const check = () => {
+      const el = trendsRef.current;
+      if (!el || Date.now() < autoScrollUntil.current) return;
+      const inView: Tab = el.getBoundingClientRect().top < window.innerHeight * 0.45 ? "trends" : "overview";
+      if (inView !== shownTab.current) {
+        fromScroll.current = true;
+        navigate(`/dashboard/${inView}`, { replace: true });
+      }
+    };
+    window.addEventListener("scroll", check, { passive: true });
+    return () => window.removeEventListener("scroll", check);
+  }, [navigate]);
 
   const context = useApi<Context>("/dashboard/context");
   const boroughs = useApi<Borough[]>("/boroughs");
@@ -109,7 +142,6 @@ export default function Dashboard() {
   const [compareIds, setCompareIds] = useState<number[]>(kept.compareIds ?? []);
   const [flow, setFlow] = useState<Query | null>(kept.flow ?? null);
   const [comparingMonths, setComparingMonths] = useState(kept.comparingMonths ?? false);
-  const [choosing, setChoosing] = useState(false);
 
   // Start with every loaded month, the same data the planner learns from.
   const bounds = context.data?.dateFrom && context.data.dateTo
@@ -134,10 +166,10 @@ export default function Dashboard() {
 
   // Each section asks only for what it shows; useApi drops answers to older paths.
   const q = filters && toQuery(filters);
-  const overview = tab === "overview";
+  // Zone maps and Daily trends are both on the page; the route only says which to show in view.
+  const overview = true;
   const summary = useApi<Summary>(q && overview ? `/dashboard?${q}` : null);
-  const series = useApi<Series>(filters && !overview
-    ? `/dashboard/series?${toQuery(filters, { bucket: shownBucket })}` : null);
+  const series = useApi<Series>(filters ? `/dashboard/series?${toQuery(filters, { bucket: shownBucket })}` : null);
   const compare = useApi<Compare>(filters && overview && compareIds.length
     ? `/dashboard/compare?${toQuery(filters, { zoneIds: compareIds })}` : null);
   const slice = useApi<Slice>(flow && `/flows?${toParams(flow)}`);
@@ -148,7 +180,8 @@ export default function Dashboard() {
 
   const zoneName = useMemo(() => new Map((zones.data ?? []).map((z) => [z.location_id, z.zone_name])), [zones.data]);
   const centre = useMemo(() => centreMap(centroids.data), [centroids.data]);
-  const lines = useMemo(() => flowLines(slice.data, centre), [slice.data, centre]);
+  // only while the Flow Explorer is open: the last answer stays loaded after it closes
+  const lines = useMemo(() => (flow ? flowLines(slice.data, centre) : []), [flow, slice.data, centre]);
 
   // Clicking a zone opens its flows, matched to the filters the first time;
   // after that, the panel keeps the month and time the analyst chose.
@@ -195,7 +228,8 @@ export default function Dashboard() {
     // views saved before the sections were merged may name Shortages or Compare zones
     setMapMode(w.mapMode === "shortages" || w.section === "shortages" || f.metric === "imbalance"
       ? "shortages" : "demand");
-    navigate(`/dashboard/${w.section === "timing" ? "timing" : "overview"}`);
+    // views saved when this section was called Timing name it "timing"
+    navigate(`/dashboard/${w.section === "trends" || w.section === "timing" ? "trends" : "overview"}`);
   }, [bounds, navigate]);
 
   const describeView = useCallback((f: Record<string, unknown>, page: SavedView["page"]) => {
@@ -205,16 +239,19 @@ export default function Dashboard() {
             DAY_TYPES.find((d) => d.value === fq.dayType)?.label, bucketLabel(fq.timeBucket)].join(" · ");
   }, [zoneName]);
 
-  // Opening the planner: on the filtered shift when the filters name one
-  // weekday and an hour range, otherwise on the filtered boroughs (the planner
-  // then offers its busiest shifts). All boroughs when none is filtered.
+  // Opening the planner with what this page is filtered to: the boroughs (all
+  // when none is filtered), the weekdays and hours (the planner greys out the
+  // rest of its week and starts on the busiest shift inside them, or on the
+  // shift itself when the filters name one weekday and one hour range), and
+  // the zones the analyst looked at. The shift is chosen in the planner.
   const filterShift: Shift | null = filters && filters.weekdays.length === 1 && filters.hourFrom !== null
     && filters.hourTo !== null && filters.hourFrom <= filters.hourTo
     ? { dow: filters.weekdays[0], from: filters.hourFrom, to: filters.hourTo } : null;
   const planBoroughs = filters?.boroughs.length ? filters.boroughs : (boroughs.data ?? []).map((b) => b.name);
   // the zones the analyst looked at: opened in the Flow Explorer or compared
   const watched = [...new Set([...(flow ? [flow.originZoneId] : []), ...compareIds])];
-  const planShift = (shift: Shift) => navigate(planLink(shift, planBoroughs, watched, tab));
+  const allocate = () => filters && navigate(planLink(filterShift, planBoroughs, watched, tab,
+    { days: filters.weekdays, from: filters.hourFrom, to: filters.hourTo }));
   const carried = [
     filters?.boroughs.length ? filters.boroughs.join(", ") : "all boroughs",
     ...(watched.length ? [`watching ${watched.map((id) => zoneName.get(id) ?? `zone ${id}`).join(", ")}`] : []),
@@ -240,8 +277,7 @@ export default function Dashboard() {
   return (
     <section className="dashboard">
       <div className="page-head">
-        <h1>{TABS[tab].title}</h1>
-        <p className="muted">{TABS[tab].question}</p>
+        <h1>Zone maps <ZoneMapsHelp /></h1>
       </div>
 
       {setupError && <div className="alert error"><span>{setupError}</span></div>}
@@ -249,31 +285,34 @@ export default function Dashboard() {
         <div className="card"><p className="muted">No data is loaded yet. Run the loader first.</p></div>
       )}
 
-      {filters && (
-        <DashboardFilters filters={filters} onChange={setFilters} bounds={bounds}
-                          boroughs={(boroughs.data ?? []).map((b) => b.name)}
-                          action={
-                            <button className="primary"
-                                    onClick={() => (filterShift ? planShift(filterShift) : setChoosing(!choosing))}
-                                    title={`Open the Allocation Planner: ${carried.join(" · ")}`}>
-                              {filterShift ? `Plan ${shiftLabel(filterShift)} →` : "Plan a shift →"}
-                            </button>
-                          } />
+      {overview && summary.data && filters && (
+        <div className={summary.loading ? "dash-stale" : ""}><TotalsRow totals={summary.data.totals} filters={filters!} /></div>
       )}
-      {filters && choosing && !filterShift && (
-        <PlanChooser filters={filters} carried={carried} onPlan={planShift} onClose={() => setChoosing(false)} />
-      )}
+
       {filters && (
-        <SavedViews page="dashboard" pages={["dashboard", "flows"]} current={viewState} currentFor={flowViewState}
-                    describe={describeView} onOpen={openView} />
+        <FilterBar filters={filters} onChange={setFilters} bounds={bounds}
+                   boroughs={(boroughs.data ?? []).map((b) => b.name)}
+                   actions={
+                     <>
+                       <SavedViews page="dashboard" pages={["dashboard", "flows"]} current={viewState}
+                                   currentFor={flowViewState} describe={describeView} onOpen={openView} />
+                       <button className="primary allocate" onClick={allocate}
+                               title={`Open the Allocation Planner with these filters: ${carried.join(" · ")}`}>
+                         Allocate taxis
+                         {watched.length > 0 && (
+                           <span className="allocate-watch">
+                             · {watched.length} {watched.length === 1 ? "zone" : "zones"} watched
+                           </span>
+                         )}
+                         {" →"}
+                       </button>
+                     </>
+                   } />
       )}
       {summary.error && <div className="alert error"><span>{summary.error}</span></div>}
 
       {overview && (
         <>
-          {summary.data && (
-            <div className={summary.loading ? "dash-stale" : ""}><TotalsRow totals={summary.data.totals} /></div>
-          )}
 
           <div className="map-layout">
             <div className="card map-card">
@@ -308,14 +347,14 @@ export default function Dashboard() {
                             } />
               ) : short ? (
                 <>
-                  <ZoneList key="short" title="Short of taxis" first={6} zones={shortOf} value={shortageValue}
-                            sub="More pickups than drop-offs: taxis leave and don't come back." {...listProps} />
-                  <ZoneList key="surplus" title="Taxis piling up" first={4} zones={pilingUp} value={shortageValue}
-                            sub="More drop-offs than pickups: taxis end up here empty." {...listProps} />
+                  <ZoneList key="short" title="Short of taxis" zones={shortOf} value={shortageValue}
+                            columns={["Zone", "Short by"]} {...listProps} />
+                  <ZoneList key="surplus" title="Taxis piling up" zones={pilingUp} value={shortageValue}
+                            columns={["Zone", "Extra"]} {...listProps} />
                 </>
               ) : (
                 <ZoneList key="demand" title="Busiest zones" zones={byPickups} value={demandValue}
-                          sub="Ranked by pickups. Click a zone to see where its trips go." {...listProps} />
+                          columns={["Zone", "Pickups"]} {...listProps} />
               )}
             </div>
           </div>
@@ -343,8 +382,12 @@ export default function Dashboard() {
         </>
       )}
 
-      {tab === "timing" && (
+      {(
         <>
+          <div className="section-head" id="trends" ref={trendsRef}>
+            <h2>{TABS.trends.title} <TrendsHelp /></h2>
+            <p className="muted">{TABS.trends.question}</p>
+          </div>
           <div className="card">
             <div className="card-title">
               Pickups over time <div className="card-sub">Red dots mark unusual days.</div>
@@ -420,5 +463,38 @@ function UnusualDays({ series }: { series: Series }) {
         </table>
       )}
     </div>
+  );
+}
+
+// How to use Zone maps, behind the "?" beside the title.
+function ZoneMapsHelp() {
+  return (
+    <HelpTip title="How to use Zone maps" steps={[
+      { title: "Set the filters", text: "Dates, days, hours and boroughs. Every number on the page follows them." },
+      { title: "Read the totals", text: "Pickups a day (or an hour, when hours are filtered), whether taxis run short or pile up, what a trip earns and how long it takes." },
+      { title: "Switch the map", text: <>
+          <strong>Demand</strong> shows where people want taxis. <strong>Shortages</strong> shows zones losing taxis
+          in red and zones collecting them in blue.</> },
+      { title: "Click a zone", text: <>
+          See where its trips go. <strong>+</strong> adds it to a side-by-side comparison of up to three zones.</> },
+      { title: "Allocate taxis", text: "Opens the Allocation Planner on your shift and boroughs, with the zones you looked at, ready to assign taxis." },
+    ]} tip={<><strong>Views</strong> saves this setup so you can reopen it later.</>} />
+  );
+}
+
+// How to read Daily trends, behind the "?" beside its heading.
+function TrendsHelp() {
+  return (
+    <HelpTip title="How to read Daily trends" steps={[
+      { title: "Read the trend", text: <>
+          The gold line is pickups per day; the black line is the 7-day moving average, so a steady line means
+          a steady pattern.</> },
+      { title: "Spot unusual days", text: <>
+          Red dots, listed in the table below, are days at least 30% above or below a typical day of the same
+          weekday.</> },
+      { title: "Weigh the plan", text: <>
+          The Allocation Planner averages every day, unusual ones included, so a plan fits a normal day, not
+          every day.</> },
+    ]} tip={<>Pick 31 days or fewer in the filters to see the chart per hour.</>} />
   );
 }

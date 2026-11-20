@@ -5,7 +5,7 @@
   --bg: #f6f5f0;
   --surface: #ffffff;
   --ink: #1c1c1a;
-  --muted: #6f6e68;
+  --muted: #62615b;
   --line: #ebe9e2;
   --line-strong: #d6d3c9;
   --yellow: #f7c600;
@@ -13,17 +13,18 @@
   --yellow-soft: #fff6cc;
   --red: #c2382b;
   --red-soft: #fdecea;
-  --green: #1b8a52;
+  --green: #16733f;
   --green-soft: #e6f5ec;
   --blue: #2a64b8;
   --blue-soft: #e8f0fb;
   --radius: 16px;
   --shadow: 0 1px 2px rgba(28, 28, 26, 0.04), 0 6px 20px rgba(28, 28, 26, 0.04);
-  --sidebar: 256px;
+  --sidebar: 272px;
+  --topbar-h: 60px;
   font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
   color: var(--ink);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 1rem;
+  line-height: 1.5;
 }
 
 * { box-sizing: border-box; }
@@ -42,11 +43,11 @@ body { margin: 0; background: var(--bg); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
 .brand-mark {
   flex: none; width: 36px; height: 36px; border-radius: 10px; background: var(--yellow); color: var(--ink);
-  display: grid; place-items: center; font-size: 14px; font-weight: 800; letter-spacing: 0.3px;
+  display: grid; place-items: center; font-size: 1rem; font-weight: 800; letter-spacing: 0.3px;
   box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.12);
 }
-.brand-name { font-size: 15px; font-weight: 750; letter-spacing: -0.1px; }
-.brand-sub { font-size: 11px; color: var(--muted); }
+.brand-name { font-size: 1.0625rem; font-weight: 750; letter-spacing: -0.1px; }
+.brand-sub { font-size: 0.8125rem; color: var(--muted); }
 
 .side-nav { display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .side-page {
@@ -57,7 +58,7 @@ body { margin: 0; background: var(--bg); }
 .side-page.here { background: var(--yellow); color: var(--ink); box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08); }
 .side-items { display: flex; flex-direction: column; gap: 1px; margin: 6px 0 0 21px; padding-left: 12px; border-left: 2px solid var(--line); }
 .side-item {
-  position: relative; padding: 6px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13.5px;
+  position: relative; padding: 6px 10px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 0.9375rem;
 }
 .side-item:hover { background: #f4f3ee; color: var(--ink); }
 .side-item.active { color: var(--ink); font-weight: 650; background: var(--yellow-soft); }
@@ -71,27 +72,27 @@ body { margin: 0; background: var(--bg); }
 }
 .avatar {
   flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--ink); color: var(--yellow);
-  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  display: grid; place-items: center; font-size: 0.875rem; font-weight: 700;
 }
 .account-text { min-width: 0; flex: 1; }
-.account-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.account-role { font-size: 11px; color: var(--muted); }
-.account button { font-size: 12px; }
+.account-name { font-weight: 600; font-size: 0.9375rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-role { font-size: 0.8125rem; color: var(--muted); }
+.account button { font-size: 0.875rem; }
 
 .topbar {
-  position: sticky; top: 0; z-index: 1000;
+  position: sticky; top: 0; z-index: 1000; min-height: var(--topbar-h);
   display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 10px;
   padding: 12px 28px; background: rgba(246, 245, 240, 0.9); backdrop-filter: blur(6px);
   border-bottom: 1px solid var(--line);
 }
 .pill {
   display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--line); font-size: 12px; font-weight: 600;
+  background: var(--surface); border: 1px solid var(--line); font-size: 0.875rem; font-weight: 600;
 }
 .pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
 .pill.bad .pill-dot { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
 .pill.subtle { font-weight: 500; color: var(--muted); }
-.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; cursor: pointer; color: #4a4944; }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 0.875rem; font-weight: 600; cursor: pointer; color: #4a4944; }
 .switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .switch-track {
   position: relative; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); transition: background 0.15s;
@@ -121,24 +122,24 @@ body { margin: 0; background: var(--bg); }
 /* Fluid: the page fills the width beside the sidebar at any window size or
    browser zoom; the side columns and the maps grow with it. */
 main { width: 100%; margin: 0; padding: 24px clamp(16px, 2vw, 40px) 40px; }
-h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.4px; }
-h2 { font-size: 18px; margin: 0 0 8px; }
+h1 { font-size: 1.875rem; margin: 0 0 4px; letter-spacing: -0.4px; }
+h2 { font-size: 1.25rem; margin: 0 0 8px; }
 p { margin: 0 0 12px; }
 .muted { color: var(--muted); }
-.small { font-size: 12px; }
+.small { font-size: 0.875rem; }
 .page-head { margin-bottom: 18px; }
 .page-head p { max-width: 780px; }
 .eyebrow {
-  display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
-  color: #8a6d00; background: var(--yellow-soft); padding: 2px 8px; border-radius: 999px; margin-bottom: 8px;
+  display: inline-block; font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+  color: #735800; background: var(--yellow-soft); padding: 2px 8px; border-radius: 999px; margin-bottom: 8px;
 }
 
 .card {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 16px;
 }
-.card-title { font-weight: 700; font-size: 15px; margin-bottom: 12px; }
-.card-sub { font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.card-title { font-weight: 700; font-size: 1.0625rem; margin-bottom: 12px; }
+.card-sub { font-size: 0.875rem; color: var(--muted); font-weight: 400; margin-top: 2px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .card-head .card-title { margin-bottom: 0; }
 
@@ -156,7 +157,12 @@ button.primary:hover:not(:disabled) { background: #ffd21f; border-color: var(--y
 button.danger { background: var(--red); border-color: var(--red); color: #fff; }
 button.danger:hover:not(:disabled) { background: #a92e22; }
 button.link { border: none; background: none; padding: 2px 4px; color: #2b5fb8; font-weight: 500; }
-button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+/* Links and link-style buttons: never underlined; on hover they turn bold,
+   drawn with a text shadow so the text doesn't change width and shift what's
+   beside it. */
+button.link:hover:not(:disabled) { background: none; text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
+a { color: #2b5fb8; text-decoration: none; }
+a:hover { text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
 button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
 .danger-text { color: var(--red) !important; }
 
@@ -182,16 +188,16 @@ input[type="range"] { padding: 0; accent-color: var(--ink); }
 
 .tag {
   display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
-  background: #eeece5; color: var(--muted); font-size: 11px; font-weight: 600;
+  background: #eeece5; color: var(--muted); font-size: 0.8125rem; font-weight: 600;
 }
 .tag.warn { background: var(--yellow-soft); color: #7a5d00; }
 
 /* --- tables ------------------------------------------------------------- */
 
 .table-wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; }
 th {
-  text-align: left; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.4px;
+  text-align: left; font-size: 0.8125rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.4px;
   color: var(--muted); padding: 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap;
 }
 td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -211,7 +217,7 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .map .leaflet-tile-pane { filter: grayscale(1) brightness(1.06) contrast(0.82); opacity: 0.75; }
 .example {
   background: #1f1f1d; color: #e9e7df; padding: 12px; border-radius: 10px;
-  max-height: 220px; overflow: auto; font-size: 12px;
+  max-height: 220px; overflow: auto; font-size: 0.875rem;
 }
 
 /* --- shared pieces used by several pages ------------------------------------ */
@@ -225,16 +231,20 @@ th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* segmented choice, e.g. Weekdays | Weekends */
 .segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
-.segmented button { border: none; border-radius: 0; padding: 5px 11px; font-size: 13px; background: var(--surface); }
+.segmented button { border: none; border-radius: 0; padding: 5px 11px; font-size: 0.9375rem; background: var(--surface); }
 .segmented button + button { border-left: 1px solid var(--line-strong); }
 .segmented button.on { background: var(--ink); color: #fff; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 12px; font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 12px; font-size: 0.9375rem; }
 .chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 .chip.on:hover:not(:disabled) { background: #33332f; border-color: #33332f; }
 span.chip { border: 1px solid var(--line-strong); }
-.chip-x { border: none; background: none; color: inherit; padding: 0 2px; font-size: 15px; line-height: 1; }
+.chip-x { border: none; background: none; color: inherit; padding: 0 2px; font-size: 1.0625rem; line-height: 1; }
 .chip-x:hover:not(:disabled) { background: none; color: var(--yellow); }
 
-code { background: #f0eee7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+code { background: #f0eee7; padding: 1px 5px; border-radius: 4px; font-size: 0.875rem; }
+
+/* Leaflet sets its own small font on the map's labels and tooltips */
+.leaflet-container { font: inherit; font-size: 0.875rem; }
+.leaflet-tooltip { font-size: 0.875rem; }

@@ -10,6 +10,7 @@ type Props = {
   busy: boolean;
   stale: boolean;
   suggestions?: ReactNode;   // shifts worth planning, shown above the fields
+  fleetHint?: ReactNode;     // the fleet that keeps up with the chosen shift, under Fleet size
 };
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -17,7 +18,8 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 // Plan settings. The four a fleet manager decides (fleet, day, hours,
 // boroughs) are always shown; eligibility and the scoring weights are under
 // "Advanced", with defaults that work.
-export default function SettingsForm({ settings: s, onChange, boroughs, onPreview, busy, stale, suggestions }: Props) {
+export default function SettingsForm({ settings: s, onChange, boroughs, onPreview, busy, stale, suggestions,
+                                       fleetHint }: Props) {
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...s, [k]: v });
   const num = (k: keyof Settings) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     set(k, Number(e.target.value) as never);
@@ -44,6 +46,7 @@ export default function SettingsForm({ settings: s, onChange, boroughs, onPrevie
         <label className="field">
           <span>Fleet size</span>
           <input type="number" min={1} max={100000} value={s.fleet_size} onChange={num("fleet_size")} />
+          {fleetHint && <span className="fleet-hint">{fleetHint}</span>}
         </label>
         <label className="field">
           <span>Day</span>

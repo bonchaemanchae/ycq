@@ -140,7 +140,7 @@ PostgreSQL vs MongoDB check. Analysts never see these.
 | Analytical Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard/overview`, `/timing` |
 | Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard or Planner map | — |
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
-| Saved Views (Caleb) | `api/routers/saved_views.py` | the Saved views bar on the Dashboard | — |
+| Saved Views (Caleb) | `api/routers/saved_views.py` | the **Views** menu beside the Dashboard filters | — |
 | Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `/admin/users` | — |
 | Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/loading`, `/check`, `/benchmarks`, `/users` |
 
@@ -163,26 +163,31 @@ routes in `web/src/App.tsx` to appear in the sidebar.
 
 ### Analytical Dashboard
 
-The landing page, in two sections. Both follow the same filters: a date range, days of the week, a range of hours
+The landing page: one page with two sections, Zone maps and then Daily trends below it (the sidebar's two items scroll to them, and show which one is in view). Both follow the same filters: a date range, days of the week, a range of hours
 (22 to 2 wraps past midnight) and boroughs.
 
 | Section | Question | Shows |
 |---|---|---|
-| Overview | Where do people want taxis, and where do taxis run short? | four totals (pickups, drop-offs, average fare, average trip) and one map with a **Demand \| Shortages** switch: by pickups, with every zone ranked beside it with its share of pickups, or by pickups minus drop-offs (red short of taxis, blue piling up), with the zones short of taxis and those with too many. **+** on a zone adds it to the comparison under the map (up to three: median and 90th percentile of hourly pickups, peak hour, fare, trip length); clicking a zone opens the Flow Explorer in the same panel |
-| Timing | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same weekday over the chosen dates (marked on the chart and listed) |
+| Zone maps | Where do people want taxis, and where do taxis run short? | four headline totals at the top (pickups a day, or an hour when hours are filtered; the taxi balance, pickups minus drop-offs; the average fare with what it earns per taxi-hour; the average trip time and distance) (pickups, drop-offs, average fare, average trip) and one map with a **Demand \| Shortages** switch: by pickups, with every zone ranked beside it with its share of pickups, or by pickups minus drop-offs (red short of taxis, blue piling up), with the zones short of taxis and those with too many. **+** on a zone adds it to the comparison under the map (up to three: median and 90th percentile of hourly pickups, peak hour, fare, trip length); clicking a zone opens the Flow Explorer in the same panel |
+| Daily trends | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same weekday over the chosen dates (marked on the chart and listed) |
 
-**From the dashboard to the planner.** The filter bar's **Plan … →** button
-opens the Allocation Planner on a shift, already previewed: the filtered
-weekday and hours, or, when the filters don't name one shift, the one chosen
-from the busiest shifts for those filters. It takes the boroughs too, and the
-zones the analyst looked at (opened in the Flow Explorer or compared), which
-the planner highlights with how many taxis each gets, or offers to add. A
-banner in the planner says what came across and links back; the dashboard
-keeps its state for the browser tab, so going back returns to the same view.
-The dashboard starts on every loaded month, the same data the planner learns
-from (`planLink` in `web/src/pages/planner/types.ts`).
+**From the dashboard to the planner.** The toolbar's **Allocate taxis →** button (the toolbar shows the filters in words, opens them in a panel, holds the **Views** menu, and stays at the top of the window while the page scrolls)
+opens the Allocation Planner with what the dashboard is filtered to; the
+shift itself is chosen in the planner. The planner's week grid greys out the
+weekdays and hours outside the dashboard's filters and starts on the busiest
+shift inside them (or on the exact shift, when the filters name one weekday
+and one hour range), already previewed, with a suggested fleet size: about
+how many taxis keep up with that shift (pickups an hour times the average
+trip time), which follows any other shift chosen and can be applied with one
+click. It takes the boroughs too, and the zones the analyst looked at (opened
+in the Flow Explorer or compared), which the planner highlights with how many
+taxis each gets, or offers to add. A banner in the planner says what came
+across, that plans learn from every loaded month whichever dates the
+dashboard showed, and links back; the dashboard keeps its state for the
+browser tab, so going back returns to the same view (`planLink` in
+`web/src/pages/planner/types.ts`).
 
-Clicking a zone on the Overview map opens the **Flow Explorer**
+Clicking a zone on the map in Zone maps opens the **Flow Explorer**
 beside it: the top 10 destinations of trips from that zone, drawn as lines on
 the same map, for a month, weekday or weekend, and time band (the snapshot
 closest to the filters, which the analyst can change), and optionally the same
@@ -252,7 +257,7 @@ PostgreSQL, about 40 seconds for three months.
 
 ### Saved views
 
-The Analytical Dashboard has a **Saved views** bar: name what you are looking
+The Analytical Dashboard has a **Views** menu beside its filters: name what you are looking
 at and save it, open it again later, save changes into it, rename it or
 delete it. Views are each user's own and live in MongoDB
 (`saved_analysis_views`), so this is the app's CRUD on the NoSQL side, as

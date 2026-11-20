@@ -4,11 +4,11 @@
 .flow-panel { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .flow-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .flow-head .eyebrow { margin-bottom: 4px; }
-.flow-title { font-size: 16px; font-weight: 700; line-height: 1.3; }
+.flow-title { font-size: 1.125rem; font-weight: 700; line-height: 1.3; }
 .flow-controls { display: flex; flex-wrap: wrap; gap: 6px; }
-.flow-controls select { padding: 5px 8px; font-size: 13px; max-width: 100%; }
+.flow-controls select { padding: 5px 8px; font-size: 0.9375rem; max-width: 100%; }
 .flow-note { margin: 0; }
-.flow-summary { margin: 0 0 4px; font-size: 13px; }
+.flow-summary { margin: 0 0 4px; font-size: 0.9375rem; }
 
 .flow-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .flow-list li {
@@ -18,14 +18,14 @@
 .flow-list li:hover { background: #faf9f5; }
 .flow-rank {
   width: 22px; height: 22px; border-radius: 50%; background: #f1efe8; display: grid; place-items: center;
-  font-size: 11px; font-weight: 700; color: #4a4944;
+  font-size: 0.8125rem; font-weight: 700; color: #4a4944;
 }
 .flow-list li:first-child .flow-rank { background: var(--yellow); color: var(--ink); }
 .flow-dest { min-width: 0; }
-.flow-dest-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.flow-dest-name { font-weight: 600; font-size: 0.9375rem; overflow: hidden; text-overflow: ellipsis; }
 .flow-bar { height: 5px; border-radius: 3px; background: #f1efe8; margin: 4px 0 3px; overflow: hidden; }
 .flow-bar span { display: block; height: 100%; background: var(--yellow-dark); border-radius: 3px; }
-.flow-num { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-size: 13px; }
+.flow-num { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-size: 0.9375rem; }
 .flow-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
 
 .flows-note { margin: 10px 0 0; }

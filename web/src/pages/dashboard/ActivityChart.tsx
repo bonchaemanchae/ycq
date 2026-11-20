@@ -31,10 +31,10 @@ export default function ActivityChart({ series, bucket, onBucket, hourlyAllowed 
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
             <CartesianGrid stroke="#e3e1da" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} minTickGap={24} />
-            <YAxis tick={{ fontSize: 11 }} width={56} tickFormatter={(v: number) => v.toLocaleString()} />
+            <XAxis dataKey="label" tick={{ fontSize: 13 }} minTickGap={24} />
+            <YAxis tick={{ fontSize: 13 }} width={56} tickFormatter={(v: number) => v.toLocaleString()} />
             <Tooltip formatter={(v: number) => v.toLocaleString()} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Legend wrapperStyle={{ fontSize: 14 }} />
             <Line type="monotone" dataKey="pickups" name="Pickups" stroke="#d6aa00" dot={false} strokeWidth={1.5} />
             <Line type="monotone" dataKey="dropoffs" name="Drop-offs" stroke="#9a988f" dot={false} strokeWidth={1} />
             <Line type="monotone" dataKey="movingAveragePickups" name="Pickups, moving average"

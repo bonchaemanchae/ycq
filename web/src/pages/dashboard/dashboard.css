@@ -3,29 +3,41 @@
 /* filters */
 .dash-filters { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-start; }
 .dash-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
-.dash-field > span:first-child { font-size: 12px; font-weight: 600; color: #4a4944; }
+.dash-field > span:first-child { font-size: 0.875rem; font-weight: 600; color: #4a4944; }
 .dash-inline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dash-pills { display: flex; flex-wrap: wrap; gap: 4px; }
-.dash-pills button { padding: 4px 11px; border-radius: 999px; font-size: 13px; }
+.dash-pills button { padding: 4px 11px; border-radius: 999px; font-size: 0.9375rem; }
 .dash-pills button.active:hover:not(:disabled) { background: #33332f; color: #fff; border-color: #33332f; }
-.dash-action { margin-left: auto; align-self: flex-end; }
+.dash-action { margin-left: auto; align-self: flex-end; display: flex; gap: 8px; align-items: center; }
 
-/* totals */
-.dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 4px; }
-.dash-tile { padding: 14px 16px; margin-bottom: 12px; }
-.dash-tile-label { font-size: 12px; color: var(--muted); font-weight: 600; }
-.dash-tile-value { font-size: 24px; font-weight: 750; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+/* totals: the first thing on the page */
+.dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.dash-tile { padding: 18px 22px; margin-bottom: 0; border-top: 4px solid var(--yellow); }
+.dash-tile-head { display: flex; align-items: center; gap: 10px; }
+.dash-tile-icon {
+  width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+  background: var(--yellow-soft); color: #735800;
+}
+.dash-tile-label { font-size: 0.9375rem; font-weight: 750; text-transform: uppercase; letter-spacing: 0.7px; color: #3a3935; }
+.dash-tile-value { font-size: 2.375rem; font-weight: 800; letter-spacing: -0.8px; line-height: 1.1; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.dash-tile-note { font-size: 0.9375rem; color: var(--muted); margin-top: 4px; }
 
 /* map with the ranked zones or the Flow Explorer beside it */
-.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 26vw, 560px); gap: 16px; align-items: start; }
+.map-layout { display: grid; grid-template-columns: minmax(0, 1fr) clamp(390px, 28vw, 600px); gap: 16px; align-items: stretch; }
 /* the map grows with the window: taller on tall or zoomed-out screens */
 .map-card .map { height: clamp(460px, 64vh, 1100px); }
 @media (max-width: 1150px) { .map-layout { grid-template-columns: minmax(0, 1fr); } }
 .map-card .card-head { flex-wrap: wrap; justify-content: flex-start; }
 .map-card .map-legend { margin-left: auto; }
-.map-side { position: sticky; top: 72px; max-height: calc(100vh - 88px); overflow-y: auto; }
-@media (max-width: 1150px) { .map-side { position: static; max-height: none; } }
-.map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 12px; color: var(--muted); }
+.map-layout { margin-bottom: 16px; }
+.map-layout > .card { margin-bottom: 0; }
+/* The side panel is exactly as tall as the map: height 0 with min-height 100%
+   lets the map card alone set the row's height. Its lists scroll inside it, so
+   "Show more" adds zones to the scroll instead of growing the panel. */
+.map-side { height: 0; min-height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+.map-side > .flow-panel { overflow-y: auto; min-height: 0; flex: 1; margin-right: -8px; padding-right: 8px; }
+@media (max-width: 1150px) { .map-side { height: auto; min-height: 0; max-height: 640px; } }
+.map-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 0.875rem; color: var(--muted); }
 .map-legend > span { display: inline-flex; align-items: center; gap: 6px; }
 .ramp { display: inline-block; width: 64px; height: 8px; border-radius: 4px;
   background: linear-gradient(90deg, rgba(230, 160, 0, 0.15), rgba(230, 160, 0, 1)); }
@@ -33,8 +45,13 @@
 .marked-swatch { display: inline-block; width: 16px; height: 12px; border-radius: 3px; border: 2px dashed var(--ink); }
 
 /* ranked zones (ZoneList.tsx) */
-.zone-list + .zone-list { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-.zone-list ol { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.zone-list { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.zone-list + .zone-list { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.zone-list ol {
+  list-style: none; margin: 0 -8px 6px 0; padding: 0 8px 0 0; display: flex; flex-direction: column; gap: 2px;
+  overflow-y: auto; min-height: 0; flex: 1 1 auto;
+}
+.zone-list .card-title { flex: none; }
 .zone-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; border-radius: 10px; }
 .zone-list li:hover { background: #faf9f5; }
 .zone-list li.picked { background: var(--yellow-soft); }
@@ -45,17 +62,17 @@
 .zl-open:hover:not(:disabled) { background: none; }
 .zl-rank {
   width: 24px; height: 24px; border-radius: 50%; background: #f1efe8; display: grid; place-items: center;
-  font-size: 11px; font-weight: 700;
+  font-size: 0.8125rem; font-weight: 700;
 }
 .zone-list li:first-child .zl-rank { background: var(--yellow); }
 .zl-name { display: flex; flex-direction: column; font-weight: 600; min-width: 0; }
 .zl-value { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-weight: 650; }
 .zl-compare {
-  width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 15px; line-height: 1; margin-right: 4px;
+  width: 28px; height: 28px; padding: 0; border-radius: 8px; font-size: 1.0625rem; line-height: 1; margin-right: 4px;
   color: var(--muted);
 }
 .zl-compare.on { background: var(--ink); border-color: var(--ink); color: var(--yellow); }
-.zone-list > .link { margin-right: 10px; font-size: 13px; }
+
 
 /* sections */
 .dash-note { margin: 8px 0 0; }
@@ -69,7 +86,7 @@
 
 /* weekday x hour grid */
 .dash-grid { table-layout: fixed; }
-.dash-grid th { padding: 4px 2px; font-size: 10px; text-align: center; }
+.dash-grid th { padding: 4px 2px; font-size: 0.75rem; text-align: center; }
 .dash-grid tbody th { text-align: left; width: 40px; }
 .dash-grid td { padding: 0; height: 26px; border: 1px solid var(--surface); }
 .dash-grid tbody tr:hover { background: none; }
@@ -85,13 +102,44 @@
 }
 .shift-pick > div { flex: 1 1 280px; }
 
-/* which shift to plan, when the filters don't name one */
-.plan-chooser { border-color: #f0dc8a; }
-.plan-options { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; }
-.plan-options .suggested-item {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 14px; border-radius: 12px; min-width: 170px;
+/* the Timing heading further down the same page */
+.section-head { margin: 36px 0 16px; padding-top: 20px; border-top: 1px solid var(--line-strong); scroll-margin-top: 64px; }
+.section-head h2 { font-size: 1.625rem; letter-spacing: -0.3px; margin: 0 0 4px; }
+.section-head p { margin: 0; }
+
+/* the toolbar: filters in words, the page's actions, and the full filters
+   in a panel; it stays under the top bar while the page scrolls */
+.filter-bar {
+  position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 1050; margin-bottom: 16px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 4px 18px rgba(28, 28, 26, 0.08);
 }
-.plan-options .suggested-item:hover:not(:disabled) { border-color: var(--yellow-dark); background: var(--yellow-soft); }
-.plan-options .suggested-when { font-weight: 700; font-variant-numeric: tabular-nums; }
-.plan-custom { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
-.plan-carried { margin: 12px 0 0; }
+.filter-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; }
+.filter-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; }
+.filter-toggle.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.filter-summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; flex: 1 1 320px;
+  border: none; background: none; padding: 4px 2px; text-align: left; font-weight: 500; color: #3a3935;
+}
+/* bold on hover, drawn with a text shadow so the line doesn't change width and push the buttons */
+.filter-summary:hover:not(:disabled) { background: none; color: var(--ink); text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
+.filter-summary span + span::before { content: "·"; margin: 0 8px; color: var(--muted); }
+.filter-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.allocate-watch { font-weight: 500; margin-left: 4px; }
+.filter-panel {
+  border-top: 1px solid var(--line); padding: 16px 18px; max-height: calc(100vh - 220px); overflow-y: auto;
+}
+.filter-done { margin-left: auto; align-self: flex-end; display: flex; align-items: center; gap: 12px; }
+@media (max-width: 900px) { .filter-bar { position: static; } }
+
+/* "a day" / "an hour" beside a headline number */
+.dash-tile-unit { font-size: 1.125rem; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.dash-tile-value .short .dash-tile-unit, .dash-tile-value .surplus .dash-tile-unit { color: inherit; opacity: 0.8; }
+
+/* the zone lists' header row, lined up with the rows below */
+.zl-head {
+  flex: none; display: flex; justify-content: space-between; align-items: end;
+  margin: 2px 8px 4px 0; padding: 0 44px 6px 40px; border-bottom: 1px solid var(--line-strong);
+  font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+}
+.zone-list .card-title { margin-bottom: 8px; }

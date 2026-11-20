@@ -11,12 +11,13 @@ import ComparePanel from "./planner/ComparePanel";
 import PlansPanel from "./planner/PlansPanel";
 import SettingsForm from "./planner/SettingsForm";
 import StoreCheck from "./planner/StoreCheck";
-import WeekGrid from "./planner/WeekGrid";
+import WeekGrid, { useWeek } from "./planner/WeekGrid";
 import WatchedZones from "./planner/WatchedZones";
 import VersionsPanel from "./planner/VersionsPanel";
 import {
-  DEFAULT_WEIGHTS, hourLabel, key, shiftLabel, toRequest, type Shift,
-  type Change, type PlanSummary, type Preview, type Row, type SavedVersion, type Settings, type VersionSummary,
+  DEFAULT_WEIGHTS, busiestWithin, hourLabel, key, limitAllows, limitLabel, readLimit, toRequest,
+  type Change, type Limit, type PlanSummary, type Preview, type Row, type SavedVersion, type Settings, type Shift,
+  type VersionSummary,
 } from "./planner/types";
 import "./planner/planner.css";
 
@@ -69,10 +70,13 @@ export default function Planner() {
   const [message, setMessage] = useState<Message>(null);
   const [newPlanName, setNewPlanName] = useState("");
   const [flow, setFlow] = useState<Query | null>(null);
-  // What the dashboard handed over: the shift, boroughs, the zones the analyst
-  // looked at, and the dashboard section to go back to.
-  const [handoff, setHandoff] = useState<{ label: string; boroughs: string[]; back: string } | null>(null);
+  // What the dashboard handed over: its boroughs, its weekday and hour filters
+  // (the limit), the zones the analyst looked at, and the section to go back to.
+  const [handoff, setHandoff] = useState<{ boroughs: string[]; back: "overview" | "trends"; limit: Limit | null } | null>(null);
   const [watched, setWatched] = useState<number[]>([]);
+  // The shift to start on once the week has loaded: the one the dashboard
+  // named, or the busiest inside its filters.
+  const [pending, setPending] = useState<Shift | "busiest" | null>(null);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -126,33 +130,50 @@ export default function Planner() {
 
   // A shift chosen from the busiest shifts, or handed over by the dashboard:
   // set it and preview it straight away.
-  const planShift = (shift: Shift, boroughIds?: number[]) => {
+  const planShift = (shift: Shift, boroughIds?: number[], fleet?: number) => {
     const s = { ...settings, iso_dow: shift.dow, start_hour: shift.from, end_hour: shift.to,
-                ...(boroughIds?.length ? { borough_ids: boroughIds } : {}) };
+                ...(boroughIds?.length ? { borough_ids: boroughIds } : {}),
+                ...(fleet ? { fleet_size: fleet } : {}) };
     setSettings(s);
     previewWith(s);
   };
 
-  // /planner/build?dow=4&from=17&to=19&boroughs=Manhattan,Queens (planLink in
-  // planner/types.ts). Read once the boroughs are known, then cleared from the address.
+  // /planner/build?boroughs=Manhattan,Queens&days=2,3&hours=7-9&watch=132 (planLink
+  // in planner/types.ts). Read once the boroughs are known, then cleared from the address.
   const [search, setSearch] = useSearchParams();
   useEffect(() => {
     if (!boroughs.length || ![...search.keys()].length) return;
     const names = (search.get("boroughs") ?? "").split(",").filter(Boolean);
     const ids = boroughs.filter((b) => names.includes(b.name)).map((b) => b.borough_id);
     const dow = Number(search.get("dow")), from = Number(search.get("from")), to = Number(search.get("to"));
+    const exact = search.has("from") && dow >= 1 && dow <= 7 && from >= 0 && to <= 23 && from <= to;
     const watch = (search.get("watch") ?? "").split(",").map(Number).filter((n) => n > 0);
-    const back = search.get("back") === "timing" ? "timing" : "overview";
+    const back = ["trends", "timing"].includes(search.get("back") ?? "") ? "trends" : "overview";
+    const limit = readLimit(search);
     setSearch({}, { replace: true });
+    if (!ids.length) return;
     setWatched(watch);
-    if (dow >= 1 && dow <= 7 && from >= 0 && to <= 23 && from <= to && search.has("from")) {
-      planShift({ dow, from, to }, ids);
-      setHandoff({ label: shiftLabel({ dow, from, to }), boroughs: names, back });
-    } else if (ids.length) {
-      setSettings((x) => ({ ...x, borough_ids: ids }));
-      setHandoff({ label: "", boroughs: names, back });
-    }
+    setSettings((x) => ({ ...x, borough_ids: ids }));
+    setHandoff({ boroughs: names, back, limit });
+    setPending(exact ? { dow, from, to } : "busiest");
   }, [boroughs, search]);
+
+  // The week of the chosen boroughs, for the grid, the busiest shifts and the fleet estimate.
+  const chosenNames = useMemo(
+    () => boroughs.filter((b) => settings.borough_ids.includes(b.borough_id)).map((b) => b.name),
+    [boroughs, settings.borough_ids]);
+  const week = useWeek(chosenNames);
+  const limit = handoff?.limit ?? null;
+  const allow = useMemo(() => (limit ? limitAllows(limit) : undefined), [limit]);
+
+  // Start on the handed-over shift as soon as the week is in, with the fleet
+  // that keeps up with it, and score it.
+  useEffect(() => {
+    if (!pending || !week.ready) return;
+    setPending(null);
+    const shift = pending === "busiest" ? busiestWithin(week.grid, limit) : pending;
+    if (shift) planShift(shift, undefined, week.fleetOf(shift) ?? undefined);
+  }, [pending, week.ready]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Loads a saved version: its settings, a fresh score, and its final taxis as edits.
   const openSaved = async (id: number, versionNo: number) => {
@@ -381,17 +402,36 @@ export default function Planner() {
 
   const zones = useApi<Zone[]>("/zones");
   const zoneNames = useMemo(() => new Map((zones.data ?? []).map((z) => [z.location_id, z.zone_name])), [zones.data]);
+  const backName = handoff?.back === "trends" ? "Daily trends" : "Zone maps";
   const fromDashboard = handoff && (
     <div className="handoff">
       <span>
-        <strong>From the dashboard:</strong>{" "}
-        {[handoff.label, handoff.boroughs.length >= 6 ? "all boroughs" : handoff.boroughs.join(", "),
-          watched.length ? `watching ${watched.map((id) => zoneNames.get(id) ?? `zone ${id}`).join(", ")}` : ""]
+        <strong>From {backName}:</strong>{" "}
+        {[handoff.boroughs.length >= 6 ? "all boroughs" : handoff.boroughs.join(", "),
+          watched.length ? `${watched.length} watched ${watched.length === 1 ? "zone" : "zones"}` : "",
+          handoff.limit ? limitLabel(handoff.limit) : ""]
           .filter(Boolean).join(" · ")}
+        {" · "}<strong>Plans use all of {week.months}</strong>
       </span>
-      <Link to={`/dashboard/${handoff.back}`}>← Back to the dashboard</Link>
+      <Link to={`/dashboard/${handoff.back}`}>← Back to {backName}</Link>
       <button className="link" onClick={() => { setHandoff(null); setWatched([]); }} aria-label="Dismiss">✕</button>
     </div>
+  );
+
+  // The fleet that keeps up with the shift in the settings, with a button to use it.
+  const shiftNow = { dow: settings.iso_dow, from: settings.start_hour, to: settings.end_hour };
+  const suggested = week.ready && shiftNow.from <= shiftNow.to ? week.fleetOf(shiftNow) : null;
+  const fleetHint = suggested !== null && (
+    <>
+      <span title="About how many taxis keep up with this shift: its pickups an hour times the average trip time, i.e. how many are busy with a passenger at once">
+        Suggested ≈ {suggested.toLocaleString()}
+      </span>
+      {suggested !== settings.fleet_size && (
+        <button type="button" className="link" onClick={() => setSettings({ ...settings, fleet_size: suggested })}>
+          Use it
+        </button>
+      )}
+    </>
   );
 
   const header = (
@@ -448,12 +488,10 @@ export default function Planner() {
       {alert}
 
       <SettingsForm settings={settings} onChange={setSettings} boroughs={boroughs}
-                    onPreview={doPreview} busy={busy} stale={stale}
+                    onPreview={doPreview} busy={busy} stale={stale} fleetHint={fleetHint}
                     suggestions={
-                      <WeekGrid
-                        boroughs={boroughs.filter((b) => settings.borough_ids.includes(b.borough_id)).map((b) => b.name)}
-                        current={{ dow: settings.iso_dow, from: settings.start_hour, to: settings.end_hour }}
-                        onChoose={(shift) => planShift(shift)} />
+                      <WeekGrid week={week} hasBoroughs={chosenNames.length > 0} current={shiftNow} allow={allow}
+                                onChoose={(shift) => planShift(shift)} />
                     } />
 
       {scored && (

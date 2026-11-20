@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { count, percent, signed, type ZoneRow } from "./types";
+import { count, percent, type ZoneRow } from "./types";
 
 type Props = {
   title: string;
-  sub: string;
+  columns: [string, string];        // header row: the zone column and the number column
   zones: ZoneRow[];                 // already ranked
   value: (z: ZoneRow) => { main: string; mainClass?: string; detail: string };
   onOpen: (zoneId: number) => void; // show where its trips go
@@ -11,24 +10,24 @@ type Props = {
   onCompare: (zoneId: number) => void;
   maxCompared: number;
   selected?: number | null;         // the zone whose flows are open
-  first?: number;                   // rows shown before "Show more"
 };
 
-const STEP = 20;
-
-// A ranked list of zones beside the map. Clicking a zone shows where its
-// trips go; + adds it to the comparison under the map.
-export default function ZoneList({ title, sub, zones, value, onOpen, compared, onCompare, maxCompared,
-                                   selected, first = 8 }: Props) {
-  const [shown, setShown] = useState(first);
-  const rows = zones.slice(0, shown);
+// A ranked list of every matching zone beside the map, scrolling inside its
+// panel. Clicking a zone shows where its trips go; + adds it to the
+// comparison under the map.
+export default function ZoneList({ title, columns, zones, value, onOpen, compared, onCompare, maxCompared,
+                                   selected }: Props) {
 
   return (
     <div className="zone-list">
-      <div className="card-title">{title}<div className="card-sub">{sub}</div></div>
+      <div className="card-title">{title}</div>
+      <div className="zl-head" aria-hidden="true">
+        <span>{columns[0]}</span>
+        <span>{columns[1]}</span>
+      </div>
       {zones.length === 0 && <p className="muted small">No zone matches the filters.</p>}
       <ol>
-        {rows.map((z, i) => {
+        {zones.map((z, i) => {
           const v = value(z);
           const inCompare = compared.includes(z.zoneId);
           return (
@@ -51,14 +50,6 @@ export default function ZoneList({ title, sub, zones, value, onOpen, compared, o
           );
         })}
       </ol>
-      {zones.length > shown && (
-        <button className="link" onClick={() => setShown(shown + STEP)}>
-          Show more ({zones.length - shown} left)
-        </button>
-      )}
-      {shown > first && (
-        <button className="link" onClick={() => setShown(first)}>Show fewer</button>
-      )}
     </div>
   );
 }
@@ -69,7 +60,7 @@ export const demandValue = (z: ZoneRow) => ({
   detail: `${percent(z.pickupShare)} of pickups`,
 });
 export const shortageValue = (z: ZoneRow) => ({
-  main: signed(z.imbalance),
+  main: count(Math.abs(z.imbalance)),
   mainClass: z.imbalance > 0 ? "short" : z.imbalance < 0 ? "surplus" : "",
   detail: `${count(z.pickups)} pickups, ${count(z.dropoffs)} drop-offs`,
 });
