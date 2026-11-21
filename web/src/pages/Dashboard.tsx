@@ -22,7 +22,7 @@ import {
   type Centroid, type Compare as MonthComparison, type Query, type Slice, type Zone,
 } from "./flows/types";
 import { useApi } from "./flows/useApi";
-import { DAYS, planLink, type Shift } from "./planner/types";
+import { planLink, type Shift } from "./planner/types";
 import "./dashboard/dashboard.css";
 
 // Analytical Dashboard. Routes are in api/routers/dashboard.py, the MongoDB
@@ -36,8 +36,9 @@ import "./dashboard/dashboard.css";
 //             Flow Explorer (where its trips go) in that panel, and + adds it
 //             to the comparison under the map.
 //   Daily trends    how steady demand is: pickups per day with a moving average,
-//             and the unusual days, each compared with a normal day of the
-//             same weekday (worked out in the MongoDB pipeline). The week's
+//             and the unusual days marked on the chart, each compared with
+//             the expected pickups for that weekday (worked out in the
+//             MongoDB pipeline). The week's
 //             busiest hours are chosen in the Allocation Planner instead.
 // The filter bar's Allocate taxis button opens the planner with the filtered
 // boroughs, weekdays and hours and the zones the analyst looked at; the shift
@@ -62,13 +63,15 @@ type Kept = {
   filters: Filters; mapMode: "demand" | "shortages"; compareIds: number[]; flow: Query | null;
   comparingMonths: boolean; bucket: "hour" | "day";
 };
-const kept: Partial<Kept> = (() => {
+// Read each time the dashboard opens (not once when the site loads), so
+// coming back from another page finds what was saved on the way out.
+function readKept(): Partial<Kept> {
   try {
     return JSON.parse(sessionStorage.getItem(STATE_KEY) ?? "{}");
   } catch {
     return {};
   }
-})();
+}
 
 const MAX_HOURLY_DAYS = 31;
 const daysBetween = (a: string, b: string) =>
@@ -88,6 +91,7 @@ function sliceFor(f: Filters, months: string[]): Omit<Query, "originZoneId"> {
 }
 
 export default function Dashboard() {
+  const [kept] = useState(readKept);
   const { tab: param } = useParams();
   const navigate = useNavigate();
   const wanted = param === "timing" ? "trends" : param;   // the section's old address
@@ -399,7 +403,6 @@ export default function Dashboard() {
               : series.loading && <p className="muted">Loading…</p>}
             <Source answer={series.data} />
           </div>
-          {series.data?.bucket === "day" && <UnusualDays series={series.data} />}
         </>
       )}
     </section>
@@ -419,47 +422,6 @@ function MapLegend({ short, flowOpen, compared }: { short: boolean; flowOpen: bo
       )}
       {compared && <span><span className="marked-swatch" /> compared</span>}
       {flowOpen && <span><span className="line-swatch" /> where trips go</span>}
-    </div>
-  );
-}
-
-// The days far from a normal day of the same day of the week, largest change first.
-function UnusualDays({ series }: { series: Series }) {
-  const byDate = new Map(series.points.map((p) => [p.localDate, p]));
-  const days = series.unusualDays.map((d) => byDate.get(d)!).filter(Boolean);
-  const pct = Math.round(series.unusualThreshold * 100);
-  return (
-    <div className="card">
-      <div className="card-title">
-        Unusual days
-        <div className="card-sub">
-          At least {pct}% busier or quieter than expected for that day of the week.
-        </div>
-      </div>
-      {days.length === 0 ? (
-        <p className="muted">No unusual days for these filters.</p>
-      ) : (
-        <table className="unusual">
-          <thead>
-            <tr><th>Day</th><th className="num">Pickups</th><th className="num" title="The middle value of the same day of the week over your chosen dates, e.g. of all the Mondays">Expected</th><th className="num">Change</th></tr>
-          </thead>
-          <tbody>
-            {days.map((p) => (
-              <tr key={p.localDate}>
-                <td>
-                  {DAYS[(p.isoDayOfWeek ?? 1) - 1]}{" "}
-                  {new Date(`${p.localDate}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "long" })}
-                </td>
-                <td className="num">{p.pickups.toLocaleString()}</td>
-                <td className="num">{Math.round(p.typicalPickups ?? 0).toLocaleString()}</td>
-                <td className={`num ${(p.change ?? 0) < 0 ? "short" : "surplus"}`}>
-                  <strong>{(p.change ?? 0) > 0 ? "+" : ""}{Math.round((p.change ?? 0) * 100)}%</strong>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }

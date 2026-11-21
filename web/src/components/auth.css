@@ -1,0 +1,121 @@
+/* Log in and account setup: a photo carousel on the left, the form on the right. */
+
+.auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(500px, 560px); min-height: 100vh; background: var(--bg); }
+
+/* --- the carousel --------------------------------------------------------------- */
+.auth-aside {
+  position: relative; display: flex; flex-direction: column; justify-content: space-between;
+  padding: 44px 56px 76px; overflow: hidden; background: var(--ink); color: #fff; isolation: isolate;
+}
+.slide { position: absolute; inset: 0; z-index: -2; opacity: 0; transition: opacity 1.2s ease; }
+.slide.on { opacity: 1; }
+.slide img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.04); }
+.slide.on img { animation: slow-zoom 9s ease-out forwards; }
+@keyframes slow-zoom { from { transform: scale(1.04); } to { transform: scale(1.12); } }
+/* darker at the top and bottom, where the text sits */
+.auth-shade {
+  position: absolute; inset: 0; z-index: -1;
+  background:
+    linear-gradient(to bottom, rgba(16, 15, 10, 0.72) 0%, rgba(16, 15, 10, 0.15) 26%, rgba(16, 15, 10, 0) 45%),
+    linear-gradient(to top, rgba(16, 15, 10, 0.92) 0%, rgba(16, 15, 10, 0.65) 34%, rgba(16, 15, 10, 0) 66%);
+}
+
+.auth-brand { display: flex; align-items: center; gap: 16px; }
+.auth-mark {
+  flex: none; display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 16px;
+  background: var(--yellow); color: var(--ink); font-weight: 900; font-size: 1.5rem; letter-spacing: 0.5px;
+  box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.14), 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.auth-brand-name { font-size: 2rem; font-weight: 800; letter-spacing: -0.6px; line-height: 1.1; }
+.auth-brand-sub { margin-top: 4px; font-size: 1rem; font-weight: 500; opacity: 0.85; }
+
+.auth-story { position: relative; min-height: 200px; display: flex; flex-direction: column; justify-content: flex-end; }
+.story { position: absolute; left: 0; right: 0; bottom: 44px; opacity: 0; transform: translateY(10px); transition: opacity 0.7s ease, transform 0.7s ease; }
+.story.on { opacity: 1; transform: none; }
+/* one line where there is room; on a narrow screen two even lines, never one word alone */
+.story h2 { margin: 0 0 12px; font-size: clamp(1.9rem, 2.9vw, 3rem); line-height: 1.1; letter-spacing: -0.8px; text-wrap: balance; text-shadow: 0 2px 16px rgba(0, 0, 0, 0.35); }
+.story p { margin: 0; font-size: clamp(1.125rem, 1.45vw, 1.4rem); line-height: 1.5; color: rgba(255, 255, 255, 0.9); text-wrap: balance; }
+
+/* one bar per slide, filling up while it shows */
+.story-bars { display: flex; gap: 8px; }
+.story-bar { flex: 1; max-width: 120px; height: 20px; padding: 8px 0; border: none; background: none; cursor: pointer; }
+.story-bar:hover:not(:disabled) { background: none; }
+.story-bar span { display: block; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.3); position: relative; overflow: hidden; }
+.story-bar i { position: absolute; inset: 0; width: 0; background: var(--yellow); animation: fill-bar linear forwards; }
+.story-bar.done span { background: var(--yellow); }
+.story-bar.paused i { animation-play-state: paused; }
+@keyframes fill-bar { from { width: 0; } to { width: 100%; } }
+
+/* the checkered stripe of a New York cab, along the bottom */
+.auth-checker {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 24px;
+  background: var(--yellow) repeating-conic-gradient(var(--ink) 0 25%, transparent 0 50%) 0 0 / 24px 24px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .slide, .story { transition: none; }
+  .slide.on img { animation: none; }
+}
+
+/* --- the form ------------------------------------------------------------------ */
+.auth-main { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 40px 32px; }
+.auth-card {
+  width: 100%; max-width: 440px; padding: 36px 36px 32px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 1px 2px rgba(28, 28, 26, 0.04), 0 16px 40px rgba(28, 28, 26, 0.08);
+}
+.auth-brand-small { display: none; color: var(--ink); }
+.auth-brand-small .auth-mark { width: 52px; height: 52px; font-size: 1.25rem; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.14); }
+.auth-brand-small .auth-brand-name { font-size: 1.6rem; }
+.auth-brand-small .auth-brand-sub { color: var(--muted); opacity: 1; }
+.auth-card h1 { margin: 0 0 6px; font-size: 1.75rem; letter-spacing: -0.3px; }
+.auth-lead { margin: 0 0 26px; color: var(--muted); }
+.auth-eyebrow {
+  display: inline-block; margin-bottom: 12px; padding: 3px 10px; border-radius: 999px;
+  background: var(--yellow-soft); color: #5c4700; font-size: 0.8125rem; font-weight: 700;
+}
+.auth-form { display: grid; gap: 18px; }
+.auth-field { display: grid; gap: 6px; }
+.auth-field > label, .auth-field > span { font-weight: 600; font-size: 0.9375rem; }
+.auth-field input { width: 100%; padding: 11px 12px; font-size: 1rem; border-radius: 10px; }
+.auth-submit { width: 100%; padding: 12px; font-size: 1rem; border-radius: 10px; margin-top: 4px; }
+.auth-note { margin: 24px 0 0; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.875rem; }
+.auth .alert { margin: 0 0 4px; }
+
+/* under the card: whether data is loaded, and how to get an account */
+.auth-meta { width: 100%; max-width: 440px; display: grid; gap: 6px; justify-items: center; text-align: center; font-size: 0.875rem; color: var(--muted); }
+.auth-data { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: #3c3b37; }
+.auth-data i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+
+.password-box { position: relative; }
+.password-box input { padding-right: 64px; }
+.password-toggle {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%); padding: 4px 10px;
+  border: none; background: none; color: var(--muted); font-size: 0.8125rem; font-weight: 600;
+}
+.password-toggle:hover:not(:disabled) { background: var(--bg); color: var(--ink); }
+
+/* the password rules, ticked as they are met */
+.rules { list-style: none; margin: -4px 0 0; padding: 0; display: grid; gap: 4px; font-size: 0.875rem; color: var(--muted); }
+.rules li { display: flex; align-items: center; gap: 8px; }
+.rules li::before {
+  content: ""; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-strong); flex: none;
+}
+.rules li.met { color: var(--green); }
+.rules li.met::before {
+  border-color: var(--green); background: var(--green)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8.3l2.3 2.2 4.7-4.8' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 16px no-repeat;
+}
+
+/* a link that can't be used */
+.auth-state-icon {
+  display: inline-grid; place-items: center; width: 48px; height: 48px; margin-bottom: 16px; border-radius: 14px;
+  background: var(--red-soft); color: var(--red); font-size: 1.5rem; font-weight: 800;
+}
+
+@media (max-width: 1000px) {
+  .auth { grid-template-columns: 1fr; }
+  .auth-aside { display: none; }
+  .auth-brand-small { display: flex; }
+  .auth-main { justify-content: flex-start; padding-top: 48px; }
+}

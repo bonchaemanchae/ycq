@@ -18,8 +18,8 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 // Step 1: the five things a fleet manager decides (the weekday, the hours,
 // how many taxis, which boroughs), on one line. Every change updates the
 // plan below by itself, so there is no Preview button. How zones are ranked
-// is fixed at the defaults (stored with every version); admins see the
-// weights with database details on.
+// is fixed at the defaults (stored with every version); only admins see the
+// weights.
 export default function SettingsForm({ settings: s, onChange, boroughs, fleetIsEstimate, onFleet, peak, updating,
                                        details }: Props) {
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...s, [k]: v });

@@ -136,14 +136,8 @@
 .ramp { width: 90px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, rgba(230, 160, 0, 0.15), rgba(230, 160, 0, 1)); }
 
 
-/* the save dialog */
-.dialog-backdrop {
-  position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center;
-  padding: 16px; background: rgba(28, 28, 26, 0.45);
-}
-.dialog { width: min(520px, 100%); margin: 0; box-shadow: 0 16px 48px rgba(0, 0, 0, 0.25); }
+/* the save dialog (the dialog frame itself is in styles.css) */
 .dialog .field input, .dialog .field select { width: 100%; }
-.dialog-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
 /* PostgreSQL vs MongoDB */
 .queries { margin-top: 8px; }
@@ -185,19 +179,6 @@
 /* every hour column centred: header, box, totals and demand line up */
 .plan-grid th.hour-col, .plan-grid td.num { text-align: center; }
 
-/* a confirmation (saved, created) in the top corner, gone after a few seconds */
-.toast {
-  position: fixed; top: calc(var(--topbar-h) + 12px); right: 24px; z-index: 3000;
-  display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-radius: 12px;
-  background: var(--ink); color: #fff; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  animation: toast-in 0.2s ease-out;
-}
-.toast-tick {
-  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
-  background: #2f9e5f; color: #fff; font-size: 0.8125rem;
-}
-@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .toast { animation: none; } }
 
 /* the version loaded in the planner, and its open button */
 .version-open { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
@@ -260,7 +241,7 @@
 .vpill { font-size: 0.8125rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: #f1efe8; color: #4a4944; white-space: nowrap; }
 .vpill.edits { background: var(--yellow-soft); color: #735800; }
 .version-note { flex-basis: 100%; font-size: 0.875rem; font-style: italic; color: var(--muted); }
-.seal { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; cursor: help; }
+.seal { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .seal-badge { font-size: 0.8125rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--green-soft); color: var(--green); }
 .seal code { font-size: 0.8125rem; color: var(--muted); background: none; padding: 0; }
 .seal.bad { font-size: 0.8125rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--red-soft); color: var(--red); }
@@ -291,3 +272,17 @@
 .zone-borough { margin-left: 2px; }
 .versions-count { margin-left: 8px; }
 .legend-gap { margin-left: 8px; }
+
+/* nothing could be recommended for these boroughs and this shift */
+.plan-empty { display: grid; justify-items: start; gap: 10px; padding: 36px 40px; }
+.plan-empty-icon {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+  background: var(--yellow-soft); color: #7a5d00; font-size: 1.375rem; font-weight: 800;
+}
+.plan-empty h2 { margin: 4px 0 0; font-size: 1.375rem; }
+.plan-empty p { margin: 0; max-width: 46em; color: var(--muted); font-size: 1rem; line-height: 1.55; }
+.plan-empty-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.plan-empty-zones { margin-top: 6px; padding: 14px 18px; border-radius: 12px; background: var(--yellow-soft); border: 1px solid #f0dc8a; min-width: min(460px, 100%); }
+.plan-empty-label { display: block; margin-bottom: 6px; font-size: 0.8125rem; font-weight: 700; color: #6b5200; }
+.plan-empty-zones ol { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.plan-empty-zones li .muted { margin-left: 6px; font-size: 0.875rem; }

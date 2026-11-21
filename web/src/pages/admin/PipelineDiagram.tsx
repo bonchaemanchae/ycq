@@ -1,3 +1,4 @@
+import Proves from "./Proves";
 import { n, pct, type ImportBatch, type ReconRun } from "./types";
 
 // How the data got here, as five steps with the live numbers for each.
@@ -19,7 +20,10 @@ export default function PipelineDiagram({ batches, latest }: {
 
   return (
     <div className="card">
-      <div className="card-title">How the data got here</div>
+      <div className="card-head">
+        <div className="card-title">How the data got here</div>
+        <Proves>an ETL pipeline with PostgreSQL as the source of truth</Proves>
+      </div>
       <ol className="pipeline" aria-label="Data pipeline">
         <li className="step">
           <span className="step-no">1</span>

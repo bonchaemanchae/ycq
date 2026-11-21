@@ -4,7 +4,7 @@ import { PLAIN, local, n, type ImportBatch, type RejectedPage } from "./types";
 
 // The rejected rows themselves, 50 per page, optionally for one rule. Raw
 // values are shown exactly as they were in the file.
-export default function RejectedRows({ batch }: { batch: ImportBatch }) {
+export default function RejectedRows({ batch, open }: { batch: ImportBatch; open?: boolean }) {
   const [code, setCode] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<RejectedPage | null>(null);
@@ -22,8 +22,8 @@ export default function RejectedRows({ batch }: { batch: ImportBatch }) {
   }, [batch.import_batch_id, code, page]);
 
   return (
-    <details className="card more-card">
-      <summary className="card-title">Inspect the rejected rows for {batch.month}</summary>
+    <details className="card more-card" id="rejected" open={open || undefined}>
+      <summary className="card-title">The rejected rows for {batch.month}</summary>
       <div className="row">
         <label className="small">
           Rule{" "}

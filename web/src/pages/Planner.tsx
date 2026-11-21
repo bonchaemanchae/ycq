@@ -14,7 +14,7 @@ import StoreCheck from "./planner/StoreCheck";
 import VersionsPanel from "./planner/VersionsPanel";
 import { busiestAllowed, useWeek } from "./planner/useWeek";
 import {
-  DAYS, DEFAULT_WEIGHTS, fleetFor, hourLabel, key, limitAllows, readLimit, settingsProblems,
+  DAYS, DEFAULT_WEIGHTS, fleetFor, hourLabel, hourRanges, key, limitAllows, readLimit, settingsProblems,
   toRequest,
   type Change, type Limit, type PlanSummary, type Preview, type Row, type SavedVersion, type Settings, type Shift,
   type VersionSummary,
@@ -131,7 +131,9 @@ export default function Planner() {
     run(async () => {
       const b = await api<Borough[]>("/boroughs");
       setBoroughs(b);
-      setSettings((s) => ({ ...s, borough_ids: b.filter((x) => x.name === "Manhattan").map((x) => x.borough_id) }));
+      // The whole city by default, like the dashboard; a link from the
+      // dashboard narrows it to the boroughs filtered there (below).
+      setSettings((s) => ({ ...s, borough_ids: s.borough_ids.length ? s.borough_ids : b.map((x) => x.borough_id) }));
       await loadPlans();
     });
   }, []);
@@ -165,10 +167,11 @@ export default function Planner() {
     }
     setOpened(null);
     setFocusId(null);
-    if (p.empty_hours.length) {
+    // When no hour has a recommendation, the plan card says so instead (below).
+    if (p.empty_hours.length && p.empty_hours.length < s.end_hour - s.start_hour + 1) {
       setMessage({ kind: "error", text:
-        `No zone has enough trips to recommend at ${p.empty_hours.map(hourLabel).join(", ")}. ` +
-        "Type taxis into any zone yourself, or add boroughs." });
+        `No zone has enough trips to recommend at ${hourRanges(p.empty_hours)}, ` +
+        "so type taxis into a zone yourself or add boroughs" });
     } else if (lost) {
       setMessage({ kind: "ok", text:
         `Plan updated, ${lost} ${lost === 1 ? "change" : "changes"} cleared` });
@@ -243,9 +246,16 @@ export default function Planner() {
     if (!scored) return null;
     const perHour = new Map<number, number>();
     for (const r of scored.preview.allocations) perHour.set(r.hour, (perHour.get(r.hour) ?? 0) + Number(r.avg_pickups));
-    const peak = Math.max(0, ...perHour.values());
+    let peak = Math.max(0, ...perHour.values());
+    // No zone recommended: estimate from the boroughs' own pickups on this
+    // shift instead, so the box never shows a made-up number.
+    if (peak === 0) {
+      const { iso_dow, start_hour, end_hour } = scored.settings;
+      peak = Math.max(0, ...week.grid.filter((g) => g.isoDayOfWeek === iso_dow && g.hour >= start_hour && g.hour <= end_hour)
+        .map((g) => g.averagePickups));
+    }
     return { peak, fleet: fleetFor(peak, week.tripSec) };
-  }, [scored, week.tripSec]);
+  }, [scored, week.tripSec, week.grid]);
   const suggested = demand?.fleet ?? null;
   // While the box is on the estimate, follow it as the shift or the area changes.
   useEffect(() => {
@@ -497,6 +507,9 @@ export default function Planner() {
   const [zoomTo, setZoomTo] = useState<{ id: number; n: number } | null>(null);
   // Undo my changes: the proposal back, nothing highlighted, the map back on the whole city.
   const [resetView, setResetView] = useState(0);
+  // "Place taxis myself" on a plan with nothing recommended; a new area asks again
+  const [manualAnyway, setManualAnyway] = useState(false);
+  useEffect(() => setManualAnyway(false), [settings.borough_ids.join(",")]);   // eslint-disable-line react-hooks/exhaustive-deps
   const undoAll = () => {
     setEdits({});
     setFocusId(null);
@@ -630,13 +643,41 @@ export default function Planner() {
   // one status beside Save: can't be saved yet, saved but short of demand, or ready
   // Beside Save, only what stops it: hours that don't add up. Hours short of
   // demand are marked on their column in the table.
+  const byLeft = new Map<number, number[]>();
+  for (const h of unbalanced) byLeft.set(byHour[h].left, [...(byLeft.get(byHour[h].left) ?? []), h]);
   const warnings = [
-    unbalanced.length > 0 && { kind: "bad", text: unbalanced.map((h) => {
-      const left = byHour[h].left;
+    unbalanced.length > 0 && { kind: "bad", text: [...byLeft].map(([left, hs]) => {
       const n = Math.abs(left), taxis = n === 1 ? "taxi" : "taxis";
-      return left > 0 ? `${hourLabel(h)}: ${n} ${taxis} not placed` : `${hourLabel(h)}: ${n} extra ${taxis}`;
+      return `${n} ${left > 0 ? `${taxis} not placed` : `extra ${taxis}`} at ${hourRanges(hs)}`;
     }).join(", ") },
   ].filter(Boolean) as { kind: string; text: string }[];
+  // No zone recommended in any hour of the shift (too few trips in these
+  // boroughs): one plain explanation instead of an empty table.
+  const nothing = !!scored && !manualAnyway && changed.length === 0
+    && scored.preview.empty_hours.length === hours.length;
+  const allChosen = boroughs.length > 0 && chosenNames.length === boroughs.length;
+  const area = allChosen ? "these boroughs" : chosenNames.length > 2
+    ? `${chosenNames.slice(0, -1).join(", ")} and ${chosenNames[chosenNames.length - 1]}` : chosenNames.join(" and ");
+  const perDay = scored ? Math.round(week.grid.filter((g) => g.isoDayOfWeek === scored.settings.iso_dow)
+    .reduce((n, g) => n + g.averagePickups, 0)) : 0;
+  // The busiest zones over the whole period that the plan can take (zones of
+  // the chosen boroughs), and starting the plan with them: the fleet split
+  // between them by those pickups, the same way the planner splits it.
+  const takeable = new Set((scored?.preview.candidates ?? []).map((c) => c.location_id));
+  const startZones = week.topZones.filter((z) => takeable.has(z.id));
+  const startWithBusiest = () => {
+    const total = startZones.reduce((n, z) => n + z.pickups, 0);
+    const exact = startZones.map((z) => (fleet * z.pickups) / total);
+    const split = exact.map(Math.floor);
+    // largest remainder: the taxis left over go to the zones closest to the next one
+    exact.map((x, i) => ({ i, rest: x - split[i] })).sort((a, b) => b.rest - a.rest)
+      .slice(0, fleet - split.reduce((n, x) => n + x, 0)).forEach(({ i }) => { split[i] += 1; });
+    const next: Record<string, number> = {};
+    for (const h of hours) startZones.forEach((z, i) => { next[key(h, z.id)] = split[i]; });
+    setEdits(next);
+    setManualAnyway(true);
+    setMessage({ kind: "ok", text: `Started with ${startZones.length} busiest zones, adjust the taxis as you need` });
+  };
   const days = scored?.preview.allocations[0]?.days ?? null;
 
   return (
@@ -650,6 +691,38 @@ export default function Planner() {
 
       {!scored ? (
         <div className="card"><p className="muted">{week.error || "Working out the plan for the busiest shift…"}</p></div>
+      ) : nothing ? (
+        <div className={`card plan-empty ${stale ? "plan-stale" : ""}`}>
+          <span className="plan-empty-icon" aria-hidden="true">!</span>
+          <h2>Not enough yellow-cab trips in {area} to recommend zones by the hour</h2>
+          <p>
+            About {perDay.toLocaleString()} {perDay === 1 ? "pickup" : "pickups"} on an average {DAYS[scored.settings.iso_dow - 1]}{" "}
+            across {allChosen ? "the city" : area}, so no zone reaches {scored.settings.min_sample} pickups in any hour of
+            this shift
+          </p>
+          {startZones.length > 0 && (
+            <div className="plan-empty-zones">
+              <span className="plan-empty-label">Busiest zones over {week.months}, every day and hour</span>
+              <ol>
+                {startZones.map((z) => (
+                  <li key={z.id}><strong>{z.name}</strong> <span className="muted">{z.pickups.toLocaleString()} pickups</span></li>
+                ))}
+              </ol>
+            </div>
+          )}
+          <div className="plan-empty-actions">
+            {startZones.length > 0 && (
+              <button className="primary" onClick={startWithBusiest}>Start the plan with these zones</button>
+            )}
+            {!allChosen && (
+              <button className={startZones.length ? "" : "primary"}
+                      onClick={() => setSettings((x) => ({ ...x, borough_ids: boroughs.map((b) => b.borough_id) }))}>
+                Plan for all boroughs
+              </button>
+            )}
+            <button className="link" onClick={() => setManualAnyway(true)}>Place taxis myself</button>
+          </div>
+        </div>
       ) : (
         <div className={`card ${stale ? "plan-stale" : ""}`}>
           <div className="plan-head">
@@ -702,7 +775,7 @@ export default function Planner() {
                 </select>
               </label>
               <ZoneMap values={mapValues} label="taxis" onZoneClick={onZoneClick} selectedId={focusId} markedIds={watched}
-                       zoomTo={zoomTo} resetView={resetView} />
+                       zoomTo={zoomTo} resetView={resetView} home={allChosen ? undefined : chosenNames} />
               <div className="legend">
                 <span>fewer taxis</span><span className="ramp" /><span>more taxis</span>
                 <span className="muted legend-gap">grey: none placed</span>

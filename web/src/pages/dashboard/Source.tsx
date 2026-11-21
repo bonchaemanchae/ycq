@@ -2,7 +2,7 @@ import { useDetails } from "../../details";
 import { SOURCE_LABEL, type Answered } from "./types";
 
 // Where an answer came from and how long MongoDB took, under each chart.
-// Shown only with "Show database details" on.
+// Shown to admins only.
 export default function Source({ answer }: { answer: Answered | null }) {
   const details = useDetails();
   if (!answer || !details.on) return null;

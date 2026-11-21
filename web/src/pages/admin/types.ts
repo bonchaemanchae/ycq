@@ -76,7 +76,10 @@ export const PLAIN: Record<string, string> = {
 
 export const n = (v: number | null | undefined) => (v == null ? "–" : v.toLocaleString());
 
-export const when = (v: string | null) => (v ? new Date(v).toLocaleString() : "–");
+// Short and 24-hour, like the rest of the app: "15 Oct 2026, 23:25".
+export const when = (v: string | null) =>
+  (v ? new Date(v).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit",
+                                             minute: "2-digit", hour12: false }) : "–");
 
 // Trip times are New York local time with no time zone, so they are shown as stored.
 export const local = (v: string | null) => (v ? v.replace("T", " ") : "–");

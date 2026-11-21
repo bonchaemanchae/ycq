@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { LOGOUT_EVENT, api, getToken, logout, type User } from "./api";
 import { DetailsProvider } from "./details";
 import Admin from "./pages/Admin";
 import Dashboard from "./pages/Dashboard";
 import Login from "./pages/Login";
 import Planner from "./pages/Planner";
+import Setup from "./pages/Setup";
 
 // The app shell: a sidebar with the three pages and their sections, a top bar
 // with the loaded data, and the page.
@@ -41,10 +42,17 @@ const NAV: NavGroup[] = [
     base: "/admin", label: "Administration", admin: true,
     icon: icon("M12 3l8 4v5c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V7l8-4zM9 12l2 2 4-4"),
     items: [
-      { to: "/admin/loading", label: "Data loading" },
-      { to: "/admin/check", label: "Database check" },
-      { to: "/admin/benchmarks", label: "Benchmarks" },
-      { to: "/admin/users", label: "Users" },
+      { to: "/admin/users", label: "User management" },
+      { to: "/admin/health", label: "Data health" },
+    ],
+  },
+  // Evidence for the database design, kept apart from the day-to-day pages.
+  {
+    base: "/evaluation", label: "Database evaluation", admin: true,
+    icon: icon("M4 20h16M6 16l4-5 3 3 5-7"),
+    items: [
+      { to: "/evaluation/pipeline", label: "Data pipeline" },
+      { to: "/evaluation/benchmarks", label: "Benchmarks" },
     ],
   },
 ];
@@ -119,7 +127,7 @@ function Sidebar({ user, groups }: { user: User; groups: NavGroup[] }) {
         <span className="avatar" aria-hidden="true">{initials}</span>
         <div className="account-text">
           <div className="account-name">{user.display_name || user.email}</div>
-          <div className="account-role">{user.roles.includes("admin") ? "Administrator" : "Fleet analyst"}</div>
+          <div className="account-role">{user.roles.includes("admin") ? "Administrator" : "Fleet manager"}</div>
         </div>
         <button className="link" onClick={logout}>Log out</button>
       </div>
@@ -130,6 +138,8 @@ function Sidebar({ user, groups }: { user: User; groups: NavGroup[] }) {
 export default function App() {
   // undefined while checking a token kept from earlier in this tab.
   const [user, setUser] = useState<User | null | undefined>(getToken() ? undefined : null);
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (user === undefined) api<User>("/auth/me").then(setUser).catch(() => setUser(null));
@@ -138,8 +148,16 @@ export default function App() {
     return () => window.removeEventListener(LOGOUT_EVENT, onLogout);
   }, []);
 
+  // The link in an invitation email: set a password, then into the app.
+  if (pathname === "/setup") {
+    return <Setup onDone={(u) => { setUser(u); navigate("/dashboard/overview", { replace: true }); }} />;
+  }
   if (user === undefined) return null;
-  if (user === null) return <Login onLogin={setUser} />;
+  // Every login starts on the dashboard, whatever page was open when the
+  // previous session ended.
+  if (user === null) {
+    return <Login onLogin={(u) => { setUser(u); navigate("/dashboard/overview", { replace: true }); }} />;
+  }
 
   const admin = user.roles.includes("admin");
   const groups = NAV.filter((g) => !g.admin || admin);
@@ -154,7 +172,8 @@ export default function App() {
             <Routes>
               <Route path="/dashboard/:tab?" element={<Dashboard />} />
               <Route path="/planner/:tab?" element={<Planner />} />
-              {admin && <Route path="/admin/:section?" element={<Admin />} />}
+              {admin && <Route path="/admin/:section?" element={<Admin area="admin" />} />}
+              {admin && <Route path="/evaluation/:section?" element={<Admin area="evaluation" />} />}
               {/* the Flow Explorer is now a panel on the dashboard and planner maps */}
               <Route path="/flows" element={<Navigate to="/dashboard/overview" replace />} />
               <Route path="*" element={<Navigate to="/dashboard/overview" replace />} />

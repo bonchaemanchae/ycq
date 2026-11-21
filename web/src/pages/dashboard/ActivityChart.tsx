@@ -1,5 +1,4 @@
 import { CartesianGrid, Line, LineChart, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { DAYS } from "../planner/types";
 import { dayLabel, hourLabel, type Point, type Series } from "./types";
 
 type Props = {
@@ -55,7 +54,11 @@ export default function ActivityChart({ series, bucket, onBucket, hourlyAllowed 
             <span><span className="legend-line" style={{ background: COLOURS.pickups }} /> Pickups</span>
             <span><span className="legend-line thin" style={{ background: COLOURS.dropoffs }} /> Drop-offs</span>
             <span><span className="legend-line thick" style={{ background: COLOURS.average }} /> {average}</span>
-            {unusual.size > 0 && <span><span className="legend-dot" style={{ background: COLOURS.unusual }} /> Unusual day</span>}
+            {unusual.size > 0 && (
+              <span title={`At least ${Math.round(series.unusualThreshold * 100)}% busier or quieter than expected for that day of the week`}>
+                <span className="legend-dot" style={{ background: COLOURS.unusual }} /> Unusual day
+              </span>
+            )}
           </div>
         </>
       )}
@@ -71,7 +74,6 @@ function ChartTip({ active, payload, average, unusual }: {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
   const odd = unusual.has(p.localDate) && p.typicalPickups;
-  const weekday = p.isoDayOfWeek ? DAYS[p.isoDayOfWeek - 1] : "day";
   const change = p.change === null || p.change === undefined ? null : Math.round(p.change * 100);
   return (
     <div className="chart-tip">
@@ -81,7 +83,7 @@ function ChartTip({ active, payload, average, unusual }: {
       <div style={{ color: "#8a6d00" }}>Pickups: {n(p.pickups)}</div>
       {odd && (
         <div>
-          Normal {weekday}: {n(p.typicalPickups)}{" "}
+          Expected pickups: {n(p.typicalPickups)}{" "}
           {change !== null && <strong className="chart-tip-odd">({change > 0 ? "+" : "−"}{Math.abs(change)}%)</strong>}
         </div>
       )}

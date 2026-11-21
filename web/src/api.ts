@@ -13,8 +13,15 @@ export type User = { user_id: number; email: string; display_name: string; roles
 export const getToken = () => sessionStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string) => sessionStorage.setItem(TOKEN_KEY, token);
 
+// Ends the session: the token and everything the pages kept for this tab
+// (such as the dashboard's filters), so the next login starts on all
+// boroughs, days and hours, whoever logs in.
 export function logout() {
-  sessionStorage.removeItem(TOKEN_KEY);
+  try {
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith("ycq.")) sessionStorage.removeItem(k);
+  } catch {
+    // storage blocked: nothing was kept
+  }
   window.dispatchEvent(new Event(LOGOUT_EVENT));
 }
 

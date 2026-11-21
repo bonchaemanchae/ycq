@@ -7,6 +7,9 @@ export type Week = {
   ready: boolean;                    // the answers are for the boroughs asked about
   grid: Weekdays["grid"];            // average pickups for every weekday and hour
   tripSec: number | null;            // average trip time in these boroughs
+  // the busiest zones over every loaded day and hour, as on the dashboard: a
+  // starting point when there are too few trips to recommend by the hour
+  topZones: { id: number; name: string; pickups: number }[];
   error: string;
   months: string;                    // the loaded months the planner learns from, e.g. "Jan–Mar 2026"
 };
@@ -37,6 +40,10 @@ export function useWeek(boroughs: string[]): Week {
     ready: !!weekPath && week.path === weekPath && !!week.data && summary.path === summaryPath,
     grid,
     tripSec: summary.path === summaryPath ? summary.data?.totals.averageDurationSec ?? null : null,
+    topZones: summary.path === summaryPath
+      ? [...(summary.data?.zones ?? [])].sort((a, b) => b.pickups - a.pickups).slice(0, 3)
+          .filter((z) => z.pickups > 0).map((z) => ({ id: z.zoneId, name: z.zoneName, pickups: z.pickups }))
+      : [],
     error: week.error || context.error,
     months,
   };

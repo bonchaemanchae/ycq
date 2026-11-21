@@ -224,6 +224,19 @@ export function fleetFor(pickupsPerHour: number, tripSec: number | null | undefi
   return Math.max(1, Math.round((pickupsPerHour * tripSec) / 3600 / 5) * 5);
 }
 
+// Hours as runs of consecutive ones: [0,1,2,3,7] -> "00:00 to 03:00 and 07:00".
+export function hourRanges(hours: number[]): string {
+  const sorted = [...new Set(hours)].sort((a, b) => a - b);
+  const runs: string[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    let j = i;
+    while (j + 1 < sorted.length && sorted[j + 1] === sorted[j] + 1) j++;
+    runs.push(j > i ? `${hourLabel(sorted[i])} to ${hourLabel(sorted[j])}` : hourLabel(sorted[i]));
+    i = j;
+  }
+  return runs.length > 1 ? `${runs.slice(0, -1).join(", ")} and ${runs[runs.length - 1]}` : runs[0] ?? "";
+}
+
 // The end of a shift whose last hour is `to`: 19 ends at 20:00, 23 at midnight.
 export const endLabel = (to: number) => (to === 23 ? "midnight" : hourLabel(to + 1));
 

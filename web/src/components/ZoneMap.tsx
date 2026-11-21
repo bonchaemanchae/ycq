@@ -36,13 +36,24 @@ const HOME: [number, number] = [40.73, -73.94];
 const HOME_ZOOM = 11;
 
 // Flies back to that view each time `n` changes (e.g. after undoing changes).
-function ResetView({ n }: { n: number }) {
+// The map's home view: the boroughs in `names` when given (the planner's
+// chosen boroughs), otherwise all five. Flies there when the boroughs change
+// and each time `n` changes (e.g. after zooming into one zone).
+function HomeView({ zones, names, n }: { zones: FeatureCollection | null; names?: string[]; n: number }) {
   const map = useMap();
+  const key = names?.join("|") ?? "";
   useEffect(() => {
-    if (!n) return;
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    map.flyTo(HOME, HOME_ZOOM, { duration: still ? 0 : 0.6, animate: !still });
-  }, [map, n]);
+    const motion = { duration: still ? 0 : 0.6, animate: !still };
+    const area = names?.length && zones
+      ? zones.features.filter((f) => names.includes(f.properties?.borough)) : [];
+    if (area.length) {
+      map.flyToBounds(geoJSON({ type: "FeatureCollection", features: area } as FeatureCollection).getBounds(),
+                      { padding: [24, 24], maxZoom: 13, ...motion });
+    } else if (n || key) {
+      map.flyTo(HOME, HOME_ZOOM, motion);
+    }
+  }, [map, zones, key, n]);   // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
 
@@ -76,6 +87,8 @@ type Props = {
   zoomTo?: { id: number; n: number } | null;
   // back to the whole-city view; a new number flies back again
   resetView?: number;
+  // the boroughs the map opens on and goes back to (default: all five)
+  home?: string[];
   height?: number;
 };
 
@@ -83,7 +96,7 @@ const RGB = { scale: "230, 160, 0", short: "194, 56, 43", surplus: "42, 100, 184
 
 // NYC taxi zone map shared by every page. Colour zones by passing values.
 export default function ZoneMap({ values = {}, label = "value", onZoneClick, lines, diverging = false,
-                                  selectedId = null, markedIds = [], zoomTo = null, resetView = 0, height }: Props) {
+                                  selectedId = null, markedIds = [], zoomTo = null, resetView = 0, home, height }: Props) {
   const [zones, setZones] = useState<FeatureCollection | null>(null);
   useEffect(() => {
     api<FeatureCollection>("/zones/geojson").then(setZones).catch(console.error);
@@ -124,7 +137,7 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick, lin
                   scrollWheelZoom={false}>
       <FitToBox />
       <ZoomToZone zones={zones} target={zoomTo} />
-      <ResetView n={resetView} />
+      <HomeView zones={zones} names={home} n={resetView} />
       {/* greyed out in styles.css (.map .leaflet-tile-pane), so the zone colours stand out */}
       <TileLayer
         attribution="&copy; OpenStreetMap contributors"

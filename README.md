@@ -47,6 +47,8 @@ quicker first try, set `YCQ_MONTHS=2026-01` in `.env`. Then open:
   are up.
 - **http://localhost:8000/docs**, the API, where you can try every route.
   Log in with `POST /auth/login`, then press **Authorize** and paste the token.
+- **http://localhost:8025**, Mailpit, a test inbox that catches the
+  invitation emails the website sends. Nothing reaches a real inbox.
 
 **Already set up before login existed?** Add `YCQ_ADMIN_PASSWORD`,
 `YCQ_ANALYST1_PASSWORD` and `YCQ_ANALYST2_PASSWORD` to your `.env` (see
@@ -67,6 +69,7 @@ All `docker compose` commands must be run from the folder that contains
 | `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
 | `api` | FastAPI backend. Logs in with its own limited accounts, which the loader creates: PostgreSQL as `POSTGRES_APP_USER` (reads everything, writes only users and plans; `sql/015`), MongoDB as `MONGO_APP_USER` (reads the `ycq` database, writes only saved views). Neither is the owner or root | http://localhost:8000/docs |
 | `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
+| `mailpit` | Test mail server: catches every email the API sends (invitations) and shows it in a web inbox | http://localhost:8025 |
 
 The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
 `docker compose down` and restarts. Only `docker compose down -v` deletes it.
@@ -130,10 +133,9 @@ changed.
 The website follows a fleet manager's path: **look** at demand, **understand**
 why some zones run short, then **decide** where to station taxis. A sidebar
 lists the three pages and their sections; the top bar shows the loaded months.
-Administrators also have a **Show database details** switch on the
-Administration page (off by default): on, every page adds which MongoDB
+Administrators also see the database details on every page: which MongoDB
 collection answered each chart and how long it took, and the planner's
-PostgreSQL vs MongoDB check. Analysts never see these.
+scoring details and PostgreSQL vs MongoDB check. Analysts see only the answers.
 
 | Feature (owner) | Backend (FastAPI) | Website (React) | URL |
 |---|---|---|---|
@@ -141,8 +143,8 @@ PostgreSQL vs MongoDB check. Analysts never see these.
 | Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard map | — |
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
 | Saved Views (Caleb) | `api/routers/saved_views.py` | the **Views** menu beside the Dashboard filters | — |
-| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `/admin/users` | — |
-| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/loading`, `/check`, `/benchmarks`, `/users` |
+| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/mailer.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `web/src/pages/Setup.tsx`, `/admin/users` | — |
+| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/users`, `/admin/health`, `/evaluation/pipeline`, `/evaluation/benchmarks` |
 
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
 in `flows.py` is served at http://localhost:8000/flows/busiest. Get
@@ -217,7 +219,7 @@ same on each:
 | `borough_activity_hourly` | borough and hour | 12,954 | activity over time, weekdays |
 
 Every response says which collection answered (`source`) and how long it took
-(`queryMs`); an admin with **Show database details** on sees it under each
+(`queryMs`); an admin sees it under each
 chart. The loader builds the two
 pre-summed collections with the others, and reconciliation checks every field
 of every document against PostgreSQL.
@@ -257,8 +259,8 @@ decides, in one filter row. The planner
 opens on the busiest shift. How zones are ranked is fixed at the defaults
 (pickup activity 0.50, net outflow 0.25, consistency 0.15, median fare 0.10,
 up to 10 zones an hour): they are stored with every version, PostgreSQL checks
-the weights add up to 1, `POST /plans/preview` accepts others, and admins see
-them with database details on. Every change works the plan out again by itself (`POST /plans/preview`; the taxis box waits for typing to
+the weights add up to 1, `POST /plans/preview` accepts others, and only admins
+see them. Every change works the plan out again by itself (`POST /plans/preview`; the taxis box waits for typing to
 stop). **2. Your plan**: a row per zone and a column per hour, every
 number editable, each hour's total under it (every hour must add up to the
 fleet; **Fix** puts the difference right). The planner **recommends** the top
@@ -276,7 +278,7 @@ taxis are busy with passengers at once), and it follows the shift and the
 boroughs; a typed number is never changed by the planner. An hour whose
 demand needs more taxis than the fleet is tinted down its column, with
 "⚠ needs ≈N" under the hour (the hour shown on the map is tinted blue-grey
-instead). With database details on, **Why?** on a zone shows the numbers
+instead). For admins, **Why?** on a zone shows the numbers
 behind its ranking. **Save plan** saves it as a new
 plan or a new version of one, sealed for good. **Saved plans** lists them,
 with their versions to open or compare.
@@ -337,7 +339,7 @@ changes what its hash should be, and replacing its seal to match breaks the
 next version's link.
 
 - The Planner shows each version's hash, or a warning if it no longer matches.
-- Administration → Database check recomputes every hash each time it opens
+- Administration → Data health recomputes every hash each time it opens
   (`GET /admin/plan-seals`).
 - In psql: `SELECT * FROM plan_seal_check() WHERE problem IS NOT NULL;`
 
@@ -351,8 +353,21 @@ a copy of the latest hash.
 - **Accounts:** the three default accounts are created by the loader from `.env`
   (`scripts/seed_users.py`); an account whose password variable is empty isn't
   created. Changing a password in `.env` updates it on the next
-  `docker compose up -d`. Admins add any other accounts under
-  Administration → Users; there is no self sign-up.
+  `docker compose up -d`. There is no self sign-up.
+- **Inviting** (Administration → User management): an admin enters an email,
+  a name and a role, never a password. The API creates the account with no
+  password (`password_hash` is NULL, so nothing can log in to it) and emails a
+  one-time link (`api/mailer.py`) to `/setup#<token>`, where the person sets
+  their own password and is logged in. Only the token's SHA-256 hash is
+  stored (`account_invite`, `sql/019`), so the table can't be turned back
+  into links. A link works once, expires after 48 hours, and stops working
+  when a newer link replaces it or the account is disabled; a partial unique
+  index allows one open link per account. The token sits after `#`, which
+  browsers never send to a server, so it stays out of web server logs.
+  User management also shows the link to copy, in case the email fails.
+- **Email:** in Docker Compose the API sends to Mailpit (http://localhost:8025).
+  To send real email, set `SMTP_HOST` and `SMTP_PORT` to a real mail server and
+  `APP_URL` to where the website is.
 - **Passwords** are stored as Argon2id hashes. Logging in returns a token valid
   for 8 hours; the website keeps it until the tab is closed. The token only
   says who you are: your roles and whether your account still exists are
@@ -362,8 +377,8 @@ a copy of the latest hash.
 - **Database roles:** the API never connects as the database owner. Its
   PostgreSQL login is a member of `ycq_write` (`sql/015`), which can read
   every table but only write `app_user`, `app_user_role` and the four plan
-  tables: it can't create, alter or drop anything, or touch trips, imports
-  and summaries. `ycq_read` is the same without the writes. The loader, the
+  tables, and the invitations: it can't create, alter or drop anything,
+  delete accounts, or touch trips, imports and summaries. `ycq_read` is the same without the writes. The loader, the
   tests and `psql` use the owner (`POSTGRES_USER`). `tests/test_db_roles.py`
   runs the whole app as such a role and checks what it is refused.
 - **MongoDB role:** the API's MongoDB login holds only the custom role
@@ -372,33 +387,36 @@ a copy of the latest hash.
   the activity data or flow snapshots, create or drop collections or indexes,
   or reach other databases. The loader uses root.
 - **Orphaned saved views:** a saved view's owner is a PostgreSQL user, a link
-  no foreign key can hold. Administration → Database check shows, live,
+  no foreign key can hold. Administration → Data health shows, live,
   whether every view's owner still exists, and can delete views whose owner is
   gone (`GET`/`DELETE /admin/orphaned-views`); each reconciliation run records
-  it too. The app's own user deletion never leaves orphans; a user deleted
-  straight in `psql`, or one database restored without the other, can.
+  it too. The app never deletes users, so it never leaves orphans; a user
+  deleted straight in `psql`, or one database restored without the other, can.
 - **Row-level security on plans** (`sql/016`): PostgreSQL itself decides
   which plans a query reaches. For each request the API tells it who is
   calling (`app.user_id`, set in `api/auth.py` and cleared when the
   connection goes back to the pool in `api/db.py`). A plan, its versions and
-  results can be read by their owner or an active admin (the Users section
+  results can be read by their owner or an active admin (User management
   counts everyone's plans) and changed only by their owner; with no user set
   nothing is visible. So even a query that forgot `WHERE owner_user_id = ...`
   would only reach the caller's plans. `v_plan_summary` uses
   `security_invoker` so the view doesn't skip the rules. The owner role
   bypasses them, so the loader and tests are unaffected.
-- **Deleting a user** (Administration → Users) also deletes their saved plans
-  (PostgreSQL) and saved views (MongoDB). The order, and why a failure part way
-  can simply be retried, is explained at the top of `api/users.py`. A deleted
-  default account comes back, empty, on the next start while its password is
-  still in `.env`.
+- **Disabling a user** (Administration → User management) stops their login
+  and every session they hold at once, and revokes any open invitation. Their
+  saved plans (and the hash chain over them, `sql/017`) and saved views are
+  kept, and an admin can enable the account again. Accounts are never deleted
+  from the app: the API's database role can't delete them. You can't disable
+  yourself, and the last admin who can log in can't be disabled (two admins
+  disabling each other at once take turns, so one always remains).
 
 ## Working with the database
 
 ### See what's loaded
 
 - **Website:** the top bar lists the loaded months, and Administration → Data
-  loading shows rows read, accepted and rejected per month.
+  health shows rows read, warned and rejected per month, and whether both
+  databases agree.
 - **Loader output:** `docker compose logs loader` shows each month's counts and
   whether reconciliation **PASSED**.
 - **PostgreSQL shell**, no password needed:
@@ -522,8 +540,8 @@ python etl/reconcile.py        --month 2026-01
 ### Run the benchmark
 
 Compares PostgreSQL and MongoDB on the app's own questions. Run it after all
-months are loaded; it takes a few minutes and the results appear on the
-Administration page.
+months are loaded; it takes a few minutes and the results appear under
+Database evaluation → Benchmarks.
 
 ```bash
 docker compose build loader                                   # picks up the script

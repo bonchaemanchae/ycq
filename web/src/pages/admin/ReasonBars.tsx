@@ -8,8 +8,8 @@ export default function ReasonBars({ title, explain, reasons, base, tone }: {
   const max = Math.max(1, ...reasons.map((r) => r.rows));
   return (
     <div>
-      <div className="card-title">{title}</div>
-      <p className="muted small">{explain}</p>
+      <div className="reason-title">{title}</div>
+      <p className="muted small reason-explain">{explain}</p>
       {reasons.length === 0 ? <p className="muted">None.</p> : (
         <ul className="reason-bars">
           {reasons.map((r) => (
