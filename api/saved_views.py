@@ -269,21 +269,12 @@ def delete_view(coll: Collection, owner_user_id: int, view_id: str) -> None:
         raise ViewNotFound("view not found")
 
 
-def delete_views_for_user(coll: Collection, user_id: int) -> int:
-    """Delete all of a user's views. Returns how many were deleted.
-
-    When a user is deleted, call this FIRST and delete the PostgreSQL app_user
-    after: PostgreSQL's cascade can't reach MongoDB, and the other order can
-    leave orphaned views if the second step fails (review §3.2)."""
-    return coll.delete_many({"ownerUserId": user_id}).deleted_count
-
-
 # --- orphaned views ------------------------------------------------------------
 
 def orphaned_views(coll: Collection, conn: psycopg.Connection) -> dict:
     """Saved views whose owner no longer exists in PostgreSQL. MongoDB can't
     hold a foreign key into PostgreSQL, so this check stands in for one: the
-    app's own deletion removes a user's views first, but a user deleted
+    app only disables users and never deletes them, but a user deleted
     straight in psql, or one database restored from a backup without the
     other, would leave views nobody can reach (review §3.2).
 

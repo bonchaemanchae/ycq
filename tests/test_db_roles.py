@@ -91,6 +91,9 @@ def test_the_api_role_reads_every_table_and_view(api_conn):
     "DROP TABLE trip",
     "ALTER TABLE app_user ADD COLUMN sneaky int",
     "TRUNCATE allocation_plan",
+    "DELETE FROM app_user",                 # accounts are disabled, never deleted (sql/019)
+    "DELETE FROM app_user_role",
+    "DELETE FROM account_invite",
     "DELETE FROM import_batch",
     "UPDATE taxi_zone SET zone_name = 'x'",
     "INSERT INTO validation_code VALUES ('R0', 'reject', 'x')",
@@ -108,7 +111,7 @@ def test_the_api_role_cannot_change_data_or_schema_it_does_not_own(api_conn, sta
             api_conn.execute(statement)
 
 
-def test_the_whole_app_works_as_the_api_role(api_client, db, make_user):
+def test_the_whole_app_works_as_the_api_role(api_client, db, mongo, make_user):
     """Every kind of write the API makes, and the pages' reads."""
     make_user("boss@test.local", "admin")
     admin = login(api_client, "boss@test.local")
@@ -139,26 +142,30 @@ def test_the_whole_app_works_as_the_api_role(api_client, db, make_user):
     assert r.status_code == 200, r.text
     assert api_client.delete(f"/plans/{plan}", headers=admin).status_code == 204
 
-    # Users: an admin adds an analyst, who logs in and saves a view; then the
-    # admin deletes them (both databases)
+    # Users: an admin invites an analyst, who sets their own password, logs in,
+    # saves a view and a plan; then the admin disables them and their work stays
     r = api_client.post("/admin/users", headers=admin, json={
-        "email": "role-check@test.local", "display_name": "Role Check", "role": "analyst",
-        "password": PASSWORD})
+        "email": "role-check@test.local", "display_name": "Role Check", "role": "analyst"})
     assert r.status_code == 201, r.text
-    analyst_id = r.json()["user_id"]
+    analyst_id, link = r.json()["user_id"], r.json()["invite"]["link"]
+    r = api_client.post("/auth/setup", json={"token": link.split("#", 1)[1], "password": PASSWORD})
+    assert r.status_code == 200, r.text
     analyst = login(api_client, "role-check@test.local")
     r = api_client.post("/views", headers=analyst, json={
         "name": "Mine", "page": "dashboard", "filters": {"zoneIds": [1]}})
     assert r.status_code == 201, r.text
     assert api_client.post("/plans", json={"name": "Theirs"}, headers=analyst).status_code == 201
-    # The Users section counts everyone's plans: row-level security lets admins read them
+    # User management counts everyone's plans: row-level security lets admins read them
     users = {u["user_id"]: u for u in api_client.get("/admin/users", headers=admin).json()}
     assert users[analyst_id]["plans"] == 1
-    r = api_client.delete(f"/admin/users/{analyst_id}", headers=admin)
+    r = api_client.patch(f"/admin/users/{analyst_id}", headers=admin, json={"is_active": False})
     assert r.status_code == 200, r.text
-    assert (r.json()["deleted_views"], r.json()["deleted_plans"]) == (1, 1)
+    assert api_client.get("/auth/me", headers=analyst).status_code == 401
     assert db.execute("SELECT count(*) FROM allocation_plan WHERE owner_user_id = %s",
-                      (analyst_id,)).fetchone() == (0,)
+                      (analyst_id,)).fetchone() == (1,)
+    # Clean up as the owner: the API itself can no longer delete accounts
+    mongo[load_mongo.VIEWS].delete_many({"ownerUserId": analyst_id})
+    db.execute("DELETE FROM app_user WHERE user_id = %s", (analyst_id,))
 
 
 # --- the API's MongoDB role ------------------------------------------------------

@@ -71,35 +71,59 @@ def token_user_id(token: str) -> int | None:
         return None
 
 
-def _find_active(conn, where: str, value) -> tuple[User, str] | None:
-    """An active user and their password hash. `where` is one of the fixed
-    conditions below, never user input."""
+class AccountDisabled(Exception):
+    """The email and password are right, but an admin has disabled the account."""
+
+
+def _find(conn, where: str, value, active_only: bool = True) -> tuple[User, str | None, bool] | None:
+    """A user, their password hash and whether the account is active. `where`
+    is one of the fixed conditions below, never user input."""
     row = conn.execute(
-        f"""SELECT u.user_id, u.email, u.display_name, u.password_hash,
+        f"""SELECT u.user_id, u.email, u.display_name, u.password_hash, u.is_active,
                    array_remove(array_agg(r.name ORDER BY r.name), NULL)
             FROM app_user u
             LEFT JOIN app_user_role ur USING (user_id)
             LEFT JOIN app_role r USING (role_id)
-            WHERE u.is_active AND {where}
+            WHERE {"u.is_active AND " if active_only else ""}{where}
             GROUP BY u.user_id""",
         (value,),
     ).fetchone()
     if row is None:
         return None
-    user_id, email, name, password_hash, roles = row
-    return User(user_id, email, roles, name), password_hash
+    user_id, email, name, password_hash, is_active, roles = row
+    return User(user_id, email, roles, name), password_hash, is_active
+
+
+def _find_active(conn, where: str, value) -> tuple[User, str | None] | None:
+    found = _find(conn, where, value)
+    return (found[0], found[1]) if found else None
+
+
+def active_user(conn, user_id: int) -> User | None:
+    found = _find_active(conn, "u.user_id = %s", user_id)
+    return found[0] if found else None
 
 
 def login(conn, email: str, password: str) -> User | None:
-    """The user if the email and password match an active account. The email
-    is case-insensitive, like the unique index on app_user."""
-    found = _find_active(conn, "lower(u.email) = lower(%s)", email.strip())
-    if found is None:
+    """The user if the email and password match an active account, None if
+    they don't match any account. The email is case-insensitive, like the
+    unique index on app_user.
+
+    Raises AccountDisabled only once the password is known to be right, so
+    the message can't be used to find out which emails have accounts: a
+    wrong password on a disabled account fails like any other. Every path
+    checks one password, so all answers take the same time."""
+    found = _find(conn, "lower(u.email) = lower(%s)", email.strip(), active_only=False)
+    # An invited account has no password yet (api/users.py): it fails like an
+    # unknown email, in the same time, so the login doesn't reveal it exists.
+    if found is None or found[1] is None:
         verify_password(_DUMMY_HASH, password)
         return None
-    user, stored = found
+    user, stored, is_active = found
     if not verify_password(stored, password):
         return None
+    if not is_active:
+        raise AccountDisabled("this account has been disabled")
     if needs_rehash(stored):
         conn.execute("UPDATE app_user SET password_hash = %s WHERE user_id = %s",
                      (hash_password(password), user.user_id))

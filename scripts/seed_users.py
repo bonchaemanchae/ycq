@@ -26,8 +26,8 @@ from common import pg_connect  # noqa: E402
 # (email, display name, role, password variable)
 ACCOUNTS = [
     ("admin@ycq.local", "Admin", "admin", "YCQ_ADMIN_PASSWORD"),
-    ("analyst1@ycq.local", "Analyst One", "analyst", "YCQ_ANALYST1_PASSWORD"),
-    ("analyst2@ycq.local", "Analyst Two", "analyst", "YCQ_ANALYST2_PASSWORD"),
+    ("analyst1@ycq.local", "Maya Chen", "analyst", "YCQ_ANALYST1_PASSWORD"),
+    ("analyst2@ycq.local", "Daniel Rivera", "analyst", "YCQ_ANALYST2_PASSWORD"),
 ]
 
 
@@ -62,6 +62,8 @@ def seed(conn, env=os.environ) -> dict[str, str]:
             else:
                 user_id = row[0]
                 result[email] = "unchanged"
+            conn.execute("UPDATE app_user SET display_name = %s WHERE user_id = %s AND display_name <> %s",
+                         (name, user_id, name))
             conn.execute(
                 """INSERT INTO app_user_role (user_id, role_id)
                    SELECT %s, role_id FROM app_role WHERE name = %s

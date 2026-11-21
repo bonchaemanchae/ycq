@@ -1,23 +1,23 @@
-"""User administration (admin role only; applied in api/main.py).
+"""User management (admin role only; applied in api/main.py).
 
 Served at /admin/users/... here and at /api/admin/users/... from the website.
-The logic, and why deletion runs in the order it does, is in api/users.py.
+The logic is in api/users.py, the invitation email in api/mailer.py.
 """
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
-from .. import users
+from .. import mailer, users
 from ..auth import User, current_user
-from ..db import get_pg, mongo
-from ..saved_views import COLLECTION as VIEWS
+from ..db import get_pg
 
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 
 class NewUser(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid")   # a password here is refused: users set their own
 
     # A plain pattern, not EmailStr: that needs another package and refuses
     # .local addresses such as the default accounts'.
@@ -26,37 +26,65 @@ class NewUser(BaseModel):
     display_name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1,
                                                    max_length=100)]
     role: Literal["analyst", "admin"]
-    password: str = Field(max_length=1024)   # the rule itself is in api/passwords.py
+
+
+class Status(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    is_active: bool
+
+
+def _invited(account: dict, token: str, expires_at: datetime, me: User) -> dict:
+    """The account, plus its new link and whether the email went out. The link
+    is only ever shown here: the database keeps just its hash."""
+    link = mailer.invite_link(token)
+    emailed = mailer.send_invite(account["email"], account["display_name"], account["roles"][0],
+                                 link, expires_at, me.display_name or me.email)
+    return {**account, "invite": {"link": link, "expires_at": expires_at, "emailed": emailed,
+                                  "inbox_url": mailer.inbox_url()}}
 
 
 @router.get("")
 def list_users(conn=Depends(get_pg)):
-    """Every account with its roles, whether it is active, and its plan count."""
+    """Every account with its role, status (active, invited or disabled),
+    plan count and, while invited, when its link expires."""
     return users.list_users(conn)
 
 
 @router.post("", status_code=201)
-def create_user(body: NewUser, conn=Depends(get_pg)):
-    """Create an analyst or admin account. 409 if the email is taken or is
-    one of the default accounts from .env, 422 if the password is refused."""
+def invite_user(body: NewUser, conn=Depends(get_pg), me: User = Depends(current_user)):
+    """Create an invited account and email its one-time setup link. 409 if
+    the email is taken or is one of the default accounts from .env."""
     try:
-        return users.create_user(conn, body.email, body.display_name, body.role, body.password)
+        account, token, expires_at = users.create_user(conn, body.email, body.display_name, body.role,
+                                                       me.user_id)
     except users.EmailTaken as e:
         raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(422, str(e))
+    return _invited(account, token, expires_at, me)
 
 
-@router.delete("/{user_id}")
-def delete_user(user_id: int, conn=Depends(get_pg), me: User = Depends(current_user)):
-    """Delete a user, their saved plans (PostgreSQL) and saved views (MongoDB)."""
-    if user_id == me.user_id:
-        raise HTTPException(409, "you can't delete your own account")
+@router.post("/{user_id}/invite")
+def resend_invite(user_id: int, conn=Depends(get_pg), me: User = Depends(current_user)):
+    """A new setup link for an invited account; the old one stops working."""
     try:
-        return users.delete_user(conn, mongo()[VIEWS], user_id)
+        account, token, expires_at = users.new_invite(conn, user_id, me.user_id)
+    except users.UserNotFound as e:
+        raise HTTPException(404, str(e))
+    except users.NotInvited as e:
+        raise HTTPException(409, str(e))
+    return _invited(account, token, expires_at, me)
+
+
+@router.patch("/{user_id}")
+def set_status(user_id: int, body: Status, conn=Depends(get_pg), me: User = Depends(current_user)):
+    """Disable or enable an account. Disabled users can't log in; their plans
+    and saved views are kept."""
+    if user_id == me.user_id and not body.is_active:
+        raise HTTPException(409, "you can't disable your own account")
+    try:
+        return users.set_active(conn, user_id, body.is_active)
     except users.UserNotFound as e:
         raise HTTPException(404, str(e))
     except users.LastAdmin as e:
         raise HTTPException(409, str(e))
-    except users.DeletionIncomplete as e:
-        raise HTTPException(503, str(e))

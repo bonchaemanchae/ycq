@@ -1,262 +1,26 @@
-"""Creating users, and deleting a user across PostgreSQL and MongoDB
-(api/users.py), including what happens when either database fails part way.
+"""User management (api/users.py, sql/019): inviting an account, setting it
+up from a one-time link, and disabling and enabling it.
 
-The user owns a saved plan with two versions, so the deletion also proves the
-cascade gets past the triggers that protect saved plan history.
+Admins never set passwords: the invited user sets their own. Accounts are
+disabled, never deleted, so a disabled user's plans and saved views stay.
 """
+import hashlib
 import sys
 import threading
-import time
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
+import psycopg
 import pytest
-from pymongo.errors import AutoReconnect
 
 from conftest import PASSWORD, ROOT, login, pg_connect
 
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 import seed_users  # noqa: E402
-from api import saved_views, users  # noqa: E402
-
-
-@pytest.fixture
-def views(mongo):
-    coll = mongo[saved_views.COLLECTION]
-    coll.delete_many({})
-    yield coll
-    coll.delete_many({})
-
-
-def save_plan(db, owner: int) -> int:
-    """A plan with versions 1 and 2, each one zone-hour of 2 taxis."""
-    with db.transaction():
-        (plan_id,) = db.execute(
-            "INSERT INTO allocation_plan (owner_user_id, name) VALUES (%s, 'Plan') "
-            "RETURNING allocation_plan_id", (owner,)).fetchone()
-        for version in (1, 2):
-            db.execute(
-                """INSERT INTO allocation_plan_version
-                       (allocation_plan_id, version_no, fleet_size, iso_dow, start_hour, end_hour)
-                   VALUES (%s, %s, 2, 1, 8, 8)""", (plan_id, version))
-            db.execute(
-                """INSERT INTO allocation_plan_version_borough
-                   SELECT %s, %s, borough_id FROM borough WHERE name = 'Manhattan'""",
-                (plan_id, version))
-            db.execute("INSERT INTO allocation_result VALUES (%s, %s, 8, 1, 2, 2, 0.5, 1, 30, 'test')",
-                       (plan_id, version))
-    return plan_id
-
-
-def save_view(views, owner: int, name: str) -> None:
-    now = datetime.now(timezone.utc)
-    views.insert_one({"ownerUserId": owner, "name": name, "page": "flows",
-                      "filters": {}, "createdAt": now, "updatedAt": now})
-
-
-def footprint(db, views, user_id: int, plan_id: int) -> dict:
-    """Everything stored for a user, in both databases."""
-    counts = {
-        "app_user": ("SELECT count(*) FROM app_user WHERE user_id = %s", user_id),
-        "app_user_role": ("SELECT count(*) FROM app_user_role WHERE user_id = %s", user_id),
-        "allocation_plan": ("SELECT count(*) FROM allocation_plan WHERE owner_user_id = %s", user_id),
-        "versions": ("SELECT count(*) FROM allocation_plan_version WHERE allocation_plan_id = %s",
-                     plan_id),
-        "version_boroughs": ("SELECT count(*) FROM allocation_plan_version_borough "
-                             "WHERE allocation_plan_id = %s", plan_id),
-        "results": ("SELECT count(*) FROM allocation_result WHERE allocation_plan_id = %s", plan_id),
-    }
-    found = {name: db.execute(sql, (value,)).fetchone()[0] for name, (sql, value) in counts.items()}
-    return {**found, "views": views.count_documents({"ownerUserId": user_id})}
-
-
-GONE = {"app_user": 0, "app_user_role": 0, "allocation_plan": 0, "versions": 0,
-        "version_boroughs": 0, "results": 0, "views": 0}
-FULL = {"app_user": 1, "app_user_role": 1, "allocation_plan": 1, "versions": 2,
-        "version_boroughs": 2, "results": 2, "views": 2}
-
-
-@pytest.fixture
-def victim(db, views, make_user):
-    """An analyst with a two-version plan and two saved views, and a bystander
-    with the same, who must be left untouched."""
-    user_id = make_user("victim@test.local", "analyst")
-    other = make_user("bystander@test.local", "analyst")
-    plan_id, other_plan = save_plan(db, user_id), save_plan(db, other)
-    for owner in (user_id, other):
-        save_view(views, owner, "Morning")
-        save_view(views, owner, "Evening")
-    assert footprint(db, views, user_id, plan_id) == FULL
-    yield user_id, plan_id
-    assert footprint(db, views, other, other_plan) == FULL
-
-
-def is_active(db, user_id):
-    return db.execute("SELECT is_active FROM app_user WHERE user_id = %s", (user_id,)).fetchone()[0]
-
-
-class Views:
-    """The real collection, with delete_many replaced for one test."""
-
-    def __init__(self, real, delete_many):
-        self.real, self.delete_many = real, delete_many
-
-
-def test_deletion_removes_the_user_from_both_databases(db, views, victim):
-    user_id, plan_id = victim
-    assert users.delete_user(db, views, user_id) == {
-        "user_id": user_id, "deleted_views": 2, "deleted_plans": 1}
-    assert footprint(db, views, user_id, plan_id) == GONE
-
-
-def test_unknown_user(db, views):
-    with pytest.raises(users.UserNotFound):
-        users.delete_user(db, views, 0)
-
-
-def test_mongodb_failure_keeps_everything_and_a_retry_finishes(db, views, victim):
-    user_id, plan_id = victim
-
-    def fail(_filter):
-        raise AutoReconnect("injected MongoDB outage")
-
-    with pytest.raises(users.DeletionIncomplete, match="views could not be deleted"):
-        users.delete_user(db, Views(views, fail), user_id)
-    assert footprint(db, views, user_id, plan_id) == FULL
-    assert is_active(db, user_id) is False          # can't log in or save meanwhile
-
-    users.delete_user(db, views, user_id)
-    assert footprint(db, views, user_id, plan_id) == GONE
-
-
-def test_postgres_failure_keeps_the_user_to_retry_from(db, views, victim):
-    """A real database error, from a trigger that refuses this one deletion."""
-    user_id, plan_id = victim
-    db.execute("""CREATE FUNCTION refuse_delete() RETURNS trigger LANGUAGE plpgsql AS $$
-                  BEGIN RAISE EXCEPTION 'injected PostgreSQL failure'; END $$""")
-    db.execute(f"""CREATE TRIGGER refuse_delete BEFORE DELETE ON app_user FOR EACH ROW
-                   WHEN (OLD.user_id = {user_id}) EXECUTE FUNCTION refuse_delete()""")
-    try:
-        with pytest.raises(users.DeletionIncomplete, match="user could not be"):
-            users.delete_user(db, views, user_id)
-        assert footprint(db, views, user_id, plan_id) == {**FULL, "views": 0}
-        assert is_active(db, user_id) is False
-    finally:
-        db.execute("DROP TRIGGER refuse_delete ON app_user")
-        db.execute("DROP FUNCTION refuse_delete()")
-
-    users.delete_user(db, views, user_id)
-    assert footprint(db, views, user_id, plan_id) == GONE
-
-
-def test_a_view_being_saved_when_deletion_starts_is_deleted_too(db, views, victim):
-    """The save has checked the owner and is storing the view when the
-    deletion starts. The deletion must wait for it and then delete it, not
-    finish first and leave a view whose owner is gone."""
-    user_id, plan_id = victim
-    storing, errors = threading.Event(), []
-
-    def slow_insert(doc):
-        storing.set()
-        time.sleep(1)          # the deletion starts meanwhile
-        return views.insert_one(doc)
-
-    def save():
-        try:
-            with pg_connect(autocommit=True) as conn:
-                saved_views.create_view(
-                    SimpleNamespace(insert_one=slow_insert), conn, user_id,
-                    saved_views.ViewCreate.model_validate(
-                        {"name": "Saved mid-deletion", "page": "dashboard", "filters": {}}))
-        except Exception as e:
-            errors.append(e)
-
-    saver = threading.Thread(target=save)
-    saver.start()
-    assert storing.wait(10)
-    result = users.delete_user(db, views, user_id)
-    saver.join(10)
-    assert errors == [] and result["deleted_views"] == 3
-    assert footprint(db, views, user_id, plan_id) == GONE
-
-
-def test_the_last_active_admin_cannot_be_deleted(db, views, make_user):
-    only = make_user("boss@test.local", "admin")
-    make_user("former@test.local", "admin", active=False)
-    with pytest.raises(users.LastAdmin):
-        users.delete_user(db, views, only)
-    assert is_active(db, only) is True
-    make_user("second@test.local", "admin")
-    users.delete_user(db, views, only)
-
-
-def test_two_admins_deleting_each_other_at_once_leave_one(views, make_user):
-    """Each thread has its own connection, and both start together. The admin
-    rows are locked, so the second deletion sees the first one's result."""
-    a, b = make_user("a@test.local", "admin"), make_user("b@test.local", "admin")
-    start, outcome = threading.Barrier(2), {}
-
-    def delete(target):
-        with pg_connect(autocommit=True) as conn:
-            start.wait()
-            try:
-                users.delete_user(conn, views, target)
-                outcome[target] = "deleted"
-            except users.LastAdmin:
-                outcome[target] = "refused"
-
-    threads = [threading.Thread(target=delete, args=(t,)) for t in (a, b)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=60)
-    assert sorted(outcome.values()) == ["deleted", "refused"]
-
-
-# --- the routes ----------------------------------------------------------------
-
-def test_admin_deletes_a_user_through_the_api(client, db, views, victim, make_user):
-    user_id, plan_id = victim
-    make_user("boss@test.local", "admin")
-    admin, theirs = login(client, "boss@test.local"), login(client, "victim@test.local")
-
-    listed = {u["email"]: u for u in client.get("/admin/users", headers=admin).json()}
-    assert listed["victim@test.local"]["plans"] == 1
-    assert listed["victim@test.local"]["roles"] == ["analyst"]
-
-    r = client.delete(f"/admin/users/{user_id}", headers=admin)
-    assert r.status_code == 200 and r.json()["deleted_views"] == 2
-    assert footprint(db, views, user_id, plan_id) == GONE
-    assert client.get("/auth/me", headers=theirs).status_code == 401
-    assert client.delete(f"/admin/users/{user_id}", headers=admin).status_code == 404
-
-
-def test_admin_cannot_delete_themselves(client, make_user):
-    me = make_user("boss@test.local", "admin")
-    make_user("second@test.local", "admin")     # so the last-admin rule isn't what stops it
-    headers = login(client, "boss@test.local")
-    r = client.delete(f"/admin/users/{me}", headers=headers)
-    assert r.status_code == 409 and "your own account" in r.json()["detail"]
-    assert client.get("/auth/me", headers=headers).status_code == 200
-
-
-def test_an_incomplete_deletion_is_reported_as_retryable(client, views, victim, make_user,
-                                                          monkeypatch):
-    user_id, _ = victim
-    make_user("boss@test.local", "admin")
-
-    def fail(*_):
-        raise users.DeletionIncomplete("Try again.")
-
-    monkeypatch.setattr(users, "delete_user", fail)
-    r = client.delete(f"/admin/users/{user_id}", headers=login(client, "boss@test.local"))
-    assert r.status_code == 503 and r.json()["detail"] == "Try again."
-
-
-# --- creating users ------------------------------------------------------------
+from api import mailer, saved_views, users  # noqa: E402
 
 NEW = "new@test.local"
+NEW_PASSWORD = "a-new-strong-password"
 
 
 @pytest.fixture
@@ -268,30 +32,173 @@ def admin(client, db, make_user):
     db.execute("DELETE FROM app_user WHERE lower(email) = %s", (NEW,))
 
 
+@pytest.fixture
+def views(mongo):
+    coll = mongo[saved_views.COLLECTION]
+    coll.delete_many({})
+    yield coll
+    coll.delete_many({})
+
+
+def new_user(**changes):
+    return {"email": NEW, "display_name": "New Analyst", "role": "analyst", **changes}
+
+
+def invite(client, admin, **changes) -> tuple[dict, str]:
+    """Invite NEW; returns the account and the token from its link."""
+    r = client.post("/admin/users", headers=admin, json=new_user(**changes))
+    assert r.status_code == 201, r.text
+    return r.json(), r.json()["invite"]["link"].split("#", 1)[1]
+
+
 def accounts_named(db, email):
     return db.execute("SELECT count(*) FROM app_user WHERE lower(email) = lower(%s)",
                       (email,)).fetchone()[0]
 
 
-def new_user(**changes):
-    return {"email": NEW, "display_name": "New Analyst", "role": "analyst",
-            "password": PASSWORD, **changes}
+def status_of(client, admin, email):
+    return {u["email"]: u for u in client.get("/admin/users", headers=admin).json()}[email]["status"]
 
 
-def test_admin_creates_a_user_who_can_log_in(client, db, admin):
-    r = client.post("/admin/users", headers=admin, json=new_user(email="  New@Test.local "))
-    assert r.status_code == 201
-    assert r.json() == {"user_id": r.json()["user_id"], "email": NEW, "display_name": "New Analyst",
-                        "is_active": True, "roles": ["analyst"], "plans": 0}   # no hash
+def can_log_in(client, email, password) -> bool:
+    return client.post("/auth/login", json={"email": email, "password": password}).status_code == 200
+
+
+# --- inviting ------------------------------------------------------------------
+
+def test_an_invited_account_has_no_password_and_cannot_log_in(client, db, admin):
+    account, token = invite(client, admin, email="  New@Test.local ")
+    assert account["email"] == NEW and account["status"] == "invited"
+    assert account["roles"] == ["analyst"] and account["invite_expires_at"] is not None
+    assert account["invite"]["link"].startswith(mailer.app_url() + "/setup#")
+
     (stored,) = db.execute("SELECT password_hash FROM app_user WHERE email = %s", (NEW,)).fetchone()
-    assert stored.startswith("$argon2id$")
-    me = client.get("/auth/me", headers=login(client, NEW))
-    assert me.json()["roles"] == ["analyst"]
-    assert client.get("/admin/users", headers=login(client, NEW)).status_code == 403
+    assert stored is None
+    # Only the token's hash is stored, never the token itself
+    (kept,) = db.execute("""SELECT token_sha256 FROM account_invite JOIN app_user USING (user_id)
+                            WHERE email = %s""", (NEW,)).fetchone()
+    assert kept == hashlib.sha256(token.encode()).hexdigest() and token not in kept
+    for password in ("", "anything", PASSWORD):
+        assert not can_log_in(client, NEW, password or "x")
 
+
+def test_setting_up_from_the_link_sets_the_password_and_logs_in(client, admin):
+    _, token = invite(client, admin)
+    details = client.post("/auth/invite", json={"token": token})
+    assert details.status_code == 200 and details.json()["email"] == NEW
+
+    r = client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD})
+    assert r.status_code == 200, r.text
+    session = {"Authorization": f"Bearer {r.json()['token']}"}
+    assert client.get("/auth/me", headers=session).json()["roles"] == ["analyst"]
+    assert can_log_in(client, NEW, NEW_PASSWORD)
+    assert status_of(client, admin, NEW) == "active"
+    assert client.get("/admin/users", headers=session).status_code == 403   # an analyst
+
+    # The link works once
+    assert client.post("/auth/invite", json={"token": token}).status_code == 404
+    assert client.post("/auth/setup", json={"token": token, "password": "another-password-1"}).status_code == 404
+    assert can_log_in(client, NEW, NEW_PASSWORD)
+
+
+@pytest.mark.parametrize("password", ["short", "change-me-please-123"])
+def test_a_weak_password_is_refused_and_the_link_still_works(client, admin, password):
+    _, token = invite(client, admin)
+    r = client.post("/auth/setup", json={"token": token, "password": password})
+    assert r.status_code == 422 and "at least 12 characters" in r.json()["detail"]
+    assert client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD}).status_code == 200
+
+
+def test_an_expired_link_is_refused(client, db, admin):
+    _, token = invite(client, admin)
+    db.execute("""UPDATE account_invite SET created_at = now() - interval '3 days',
+                                            expires_at = now() - interval '1 second'
+                  WHERE token_sha256 = %s""", (hashlib.sha256(token.encode()).hexdigest(),))
+    assert client.post("/auth/invite", json={"token": token}).status_code == 404
+    assert client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD}).status_code == 404
+    assert status_of(client, admin, NEW) == "invited"
+
+
+@pytest.mark.parametrize("token", ["x" * 43, "not-a-real-token-but-long-enough"])
+def test_an_unknown_link_is_refused(client, token):
+    assert client.post("/auth/invite", json={"token": token}).status_code == 404
+    assert client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD}).status_code == 404
+
+
+def test_a_new_link_replaces_the_old_one(client, admin):
+    account, old = invite(client, admin)
+    r = client.post(f"/admin/users/{account['user_id']}/invite", headers=admin)
+    assert r.status_code == 200
+    new = r.json()["invite"]["link"].split("#", 1)[1]
+    assert new != old
+    assert client.post("/auth/setup", json={"token": old, "password": NEW_PASSWORD}).status_code == 404
+    assert client.post("/auth/setup", json={"token": new, "password": NEW_PASSWORD}).status_code == 200
+
+
+def test_the_database_keeps_one_open_link_per_account(client, db, admin):
+    account, _ = invite(client, admin)
+    with pytest.raises(psycopg.errors.UniqueViolation):
+        with db.transaction():
+            db.execute("""INSERT INTO account_invite (user_id, token_sha256, expires_at)
+                          VALUES (%s, repeat('a', 64), now() + interval '1 hour')""", (account["user_id"],))
+    with pytest.raises(psycopg.errors.CheckViolation):      # a plain token can't be stored by mistake
+        with db.transaction():
+            db.execute("""INSERT INTO account_invite (user_id, token_sha256, expires_at, revoked_at)
+                          VALUES (%s, 'plain-token', now() + interval '1 hour', now())""", (account["user_id"],))
+
+
+def test_a_set_up_account_gets_no_new_link(client, admin):
+    account, token = invite(client, admin)
+    client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD})
+    r = client.post(f"/admin/users/{account['user_id']}/invite", headers=admin)
+    assert r.status_code == 409
+    assert client.post("/admin/users/0/invite", headers=admin).status_code == 404
+
+
+def test_the_invitation_email(client, admin, monkeypatch):
+    sent = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            assert (host, port) == ("mail.test", 1025)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def send_message(self, msg):
+            sent.append(msg)
+
+    monkeypatch.setenv("SMTP_HOST", "mail.test")
+    monkeypatch.setenv("SMTP_PORT", "1025")
+    monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP)
+    account, token = invite(client, admin, display_name="<b>Jo</b> Lee")
+    assert account["invite"]["emailed"] is True
+    (msg,) = sent
+    assert msg["To"] == f'"<b>Jo</b> Lee" <{NEW}>'
+    text = msg.get_body(("plain",)).get_content()
+    page = msg.get_body(("html",)).get_content()
+    assert account["invite"]["link"] in text and token in page
+    assert "Hi &lt;b&gt;Jo&lt;/b&gt;," in page and "<b>Jo" not in page    # the name is escaped
+    assert "expires in 48 hours" in text
+
+
+def test_a_failed_email_still_creates_the_account(client, db, admin, monkeypatch):
+    def refuse(*_args, **_kw):
+        raise ConnectionRefusedError("no mail server")
+
+    monkeypatch.setenv("SMTP_HOST", "mail.test")
+    monkeypatch.setattr(mailer.smtplib, "SMTP", refuse)
+    account, _ = invite(client, admin)
+    assert account["invite"]["emailed"] is False and accounts_named(db, NEW) == 1
+
+
+# --- refused invitations ---------------------------------------------------------
 
 def test_an_email_in_use_is_refused_in_any_case(client, db, admin):
-    assert client.post("/admin/users", headers=admin, json=new_user()).status_code == 201
+    invite(client, admin)
     r = client.post("/admin/users", headers=admin, json=new_user(email="NEW@test.local", role="admin"))
     assert r.status_code == 409 and "already has an account" in r.json()["detail"]
     assert accounts_named(db, NEW) == 1
@@ -302,27 +209,126 @@ def test_the_default_accounts_are_left_to_the_loader(db):
     for email in seed_users.ACCOUNTS[0][0].upper(), *users.RESERVED_EMAILS:
         before = accounts_named(db, email)
         with pytest.raises(users.EmailTaken, match="managed from .env"):
-            users.create_user(db, email, "Imposter", "analyst", PASSWORD)
+            users.create_user(db, email, "Imposter", "analyst")
         assert accounts_named(db, email) == before
 
 
-@pytest.mark.parametrize("password", ["short", "change-me-please-123"])
-def test_a_weak_password_is_refused_before_writing(client, db, admin, password):
-    r = client.post("/admin/users", headers=admin, json=new_user(password=password))
-    assert r.status_code == 422 and "at least 12 characters" in r.json()["detail"]
-    assert accounts_named(db, NEW) == 0
-
-
 def test_an_unknown_role_leaves_no_user_without_a_role(client, db, admin):
-    assert client.post("/admin/users", headers=admin,
-                       json=new_user(role="superuser")).status_code == 422
+    assert client.post("/admin/users", headers=admin, json=new_user(role="superuser")).status_code == 422
     with pytest.raises(ValueError, match="unknown role"):
-        users.create_user(db, NEW, "New", "superuser", PASSWORD)   # past the route's check
-    assert accounts_named(db, NEW) == 0                              # the user insert rolled back
+        users.create_user(db, NEW, "New", "superuser")       # past the route's check
+    assert accounts_named(db, NEW) == 0                       # the user insert rolled back
 
 
 @pytest.mark.parametrize("body", [new_user(email="not-an-email"), new_user(display_name="  "),
+                                  {**new_user(), "password": PASSWORD},     # admins don't set passwords
                                   {**new_user(), "is_active": False}])
 def test_invalid_requests_are_refused(client, db, admin, body):
     assert client.post("/admin/users", headers=admin, json=body).status_code == 422
     assert accounts_named(db, NEW) == 0
+
+
+# --- disabling and enabling -------------------------------------------------------
+
+def save_plan(db, owner: int) -> None:
+    db.execute("INSERT INTO allocation_plan (owner_user_id, name) VALUES (%s, 'Kept')", (owner,))
+
+
+def save_view(views, owner: int) -> None:
+    now = datetime.now(timezone.utc)
+    views.insert_one({"ownerUserId": owner, "name": "Kept", "page": "dashboard",
+                      "filters": {}, "createdAt": now, "updatedAt": now})
+
+
+def test_a_disabled_user_cannot_log_in_but_keeps_their_work(client, db, views, admin, make_user):
+    user_id = make_user("worker@test.local", "analyst")
+    save_plan(db, user_id)
+    save_view(views, user_id)
+    theirs = login(client, "worker@test.local")
+
+    r = client.patch(f"/admin/users/{user_id}", headers=admin, json={"is_active": False})
+    assert r.status_code == 200 and r.json()["status"] == "disabled" and r.json()["plans"] == 1
+    assert client.get("/auth/me", headers=theirs).status_code == 401    # their session ends at once
+    assert not can_log_in(client, "worker@test.local", PASSWORD)
+    assert views.count_documents({"ownerUserId": user_id}) == 1
+
+    r = client.patch(f"/admin/users/{user_id}", headers=admin, json={"is_active": True})
+    assert r.json()["status"] == "active"
+    assert can_log_in(client, "worker@test.local", PASSWORD)
+
+
+def test_disabling_an_invited_account_revokes_its_link(client, admin):
+    account, token = invite(client, admin)
+    client.patch(f"/admin/users/{account['user_id']}", headers=admin, json={"is_active": False})
+    client.patch(f"/admin/users/{account['user_id']}", headers=admin, json={"is_active": True})
+    assert status_of(client, admin, NEW) == "invited"
+    assert client.post("/auth/setup", json={"token": token, "password": NEW_PASSWORD}).status_code == 404
+
+
+def test_an_admin_cannot_disable_themselves(client, make_user):
+    me = make_user("boss@test.local", "admin")
+    make_user("second@test.local", "admin")     # so the last-admin rule isn't what stops it
+    headers = login(client, "boss@test.local")
+    r = client.patch(f"/admin/users/{me}", headers=headers, json={"is_active": False})
+    assert r.status_code == 409 and "your own account" in r.json()["detail"]
+    assert client.get("/auth/me", headers=headers).status_code == 200
+    assert client.patch("/admin/users/0", headers=headers, json={"is_active": False}).status_code == 404
+
+
+def test_the_last_admin_who_can_log_in_cannot_be_disabled(db, make_user):
+    only = make_user("boss@test.local", "admin")
+    make_user("former@test.local", "admin", active=False)
+    users.create_user(db, "invited-admin@test.local", "Invited", "admin")   # can't log in yet
+    try:
+        with pytest.raises(users.LastAdmin):
+            users.set_active(db, only, False)
+        make_user("second@test.local", "admin")
+        assert users.set_active(db, only, False)["status"] == "disabled"
+    finally:
+        db.execute("DELETE FROM app_user WHERE email = 'invited-admin@test.local'")
+
+
+def test_two_admins_disabling_each_other_at_once_leave_one(make_user):
+    """Each thread has its own connection, and both start together. The admin
+    rows are locked, so the second sees the first one's result."""
+    a, b = make_user("a@test.local", "admin"), make_user("b@test.local", "admin")
+    start, outcome = threading.Barrier(2), {}
+
+    def disable(target):
+        with pg_connect(autocommit=True) as conn:
+            start.wait()
+            try:
+                users.set_active(conn, target, False)
+                outcome[target] = "disabled"
+            except users.LastAdmin:
+                outcome[target] = "refused"
+
+    threads = [threading.Thread(target=disable, args=(t,)) for t in (a, b)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert sorted(outcome.values()) == ["disabled", "refused"]
+
+
+def test_two_tabs_using_one_link_at_once_set_one_password(client, admin):
+    _, token = invite(client, admin)
+    start, outcome = threading.Barrier(2), []
+
+    def use(password):
+        with pg_connect(autocommit=True) as conn:
+            start.wait()
+            try:
+                users.accept_invite(conn, token, password)
+                outcome.append(password)
+            except users.InvalidInvite:
+                outcome.append("refused")
+
+    threads = [threading.Thread(target=use, args=(p,)) for p in ("first-password-123", "second-password-123")]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=60)
+    assert outcome.count("refused") == 1
+    (winner,) = [p for p in outcome if p != "refused"]
+    assert can_log_in(client, NEW, winner)

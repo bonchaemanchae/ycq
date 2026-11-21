@@ -98,11 +98,27 @@ services:
       YCQ_ANALYST2_PASSWORD: ""
       # Signs login tokens. The api refuses to start if it is under 32 characters.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Invitation emails go to Mailpit below; point SMTP_HOST at a real mail
+      # server to send them for real. APP_URL is the website, for the links.
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      MAIL_FROM: ${MAIL_FROM:-Yellow Cab Query <no-reply@ycq.local>}
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      MAIL_INBOX_URL: ${MAIL_INBOX_URL:-http://localhost:8025}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
       loader:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+
+  # A local test mail server: catches every email the app sends and shows it
+  # at http://localhost:8025. Nothing is delivered to a real inbox.
+  mailpit:
+    image: axllent/mailpit:v1.21.8
+    ports:
+      - "${MAIL_INBOX_PORT:-8025}:8025"
 
   # React app: http://localhost:8080 (forwards /api to the api service)
   web:

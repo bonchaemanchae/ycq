@@ -340,16 +340,6 @@ def test_validator_rejection_becomes_a_view_error(views, db):
         sv.rename_view(views, OWNER, v["_id"], "   ")
 
 
-def test_delete_views_for_user_only_removes_that_user(views, db):
-    create(views, db, name="A")
-    create(views, db, name="B")
-    theirs = create(views, db, owner=OTHER, name="A")
-    assert sv.delete_views_for_user(views, OWNER) == 2
-    assert sv.list_views(views, OWNER) == []
-    assert sv.list_views(views, OTHER) == [theirs]
-    assert sv.delete_views_for_user(views, OWNER) == 0
-
-
 # --- orphaned views ---------------------------------------------------------------
 
 LOST = 987654     # no such user

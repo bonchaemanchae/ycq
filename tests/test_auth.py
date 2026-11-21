@@ -24,7 +24,7 @@ from api import auth  # noqa: E402
 from api.main import app  # noqa: E402
 from api.passwords import hash_password, verify_password  # noqa: E402
 
-PUBLIC_PATHS = {"/health", "/auth/login"}
+PUBLIC_PATHS = {"/health", "/auth/login", "/auth/invite", "/auth/setup"}   # setup: the link is the proof
 ANY_USER_PATHS = {"/auth/me"}          # logged in, no particular role
 
 
@@ -120,13 +120,22 @@ def test_login_returns_a_working_token(client, make_user):
 
 
 def test_every_login_failure_looks_the_same(client, make_user):
+    """Including a wrong password on a disabled account: without the right
+    password, nothing says the account exists."""
     make_user("ana@test.local", "analyst")
     make_user("gone@test.local", "analyst", active=False)
     answers = [client.post("/auth/login", json={"email": email, "password": password})
                for email, password in [("ana@test.local", "wrong password"),
                                        ("nobody@test.local", PASSWORD),
-                                       ("gone@test.local", PASSWORD)]]
+                                       ("gone@test.local", "wrong password")]]
     assert {(r.status_code, r.json()["detail"]) for r in answers} == {(401, "wrong email or password")}
+
+
+def test_the_right_password_on_a_disabled_account_says_it_is_disabled(client, make_user):
+    make_user("gone@test.local", "analyst", active=False)
+    r = client.post("/auth/login", json={"email": "gone@test.local", "password": PASSWORD})
+    assert r.status_code == 403 and "disabled" in r.json()["detail"]
+    assert "token" not in r.json()
 
 
 def test_login_upgrades_an_old_weaker_hash(client, db, make_user):
