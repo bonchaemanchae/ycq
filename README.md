@@ -1,786 +1,285 @@
-# Yellow Cab Query (YCQ)
+# Yellow Cab Query
 
-A web app for taxi fleet analysts, built on the official NYC TLC yellow taxi
-trip records for January to March 2026. PostgreSQL + PostGIS is the source of
-truth for trips, zones, users and plans. MongoDB holds hourly zone summaries,
-origin-destination snapshots and saved views. React website, FastAPI backend.
-INF2003 Database Systems group project (team 24).
+Yellow Cab Query helps New York yellow-cab fleet managers decide where to
+station their taxis. It turns the official NYC TLC trip records for January to
+March 2026 (11.1 million trips) into demand maps, shortage analysis and
+shift-by-shift allocation plans. It uses two databases: PostgreSQL with PostGIS
+is the source of truth, and MongoDB holds summaries shaped for the pages that
+read them.
 
-> YCQ uses historical completed-trip activity. Its allocation results are
-> planning scenarios and do not represent live taxi availability, unmet
-> passenger demand or guaranteed earnings.
+INF2003 Database Systems group project, team 24.
 
-## First-time setup
+> Plans are built from past completed trips. They are planning scenarios, not
+> live taxi positions, unmet passenger demand or guaranteed earnings.
 
-You only need **Docker Desktop**. On Windows, first run `wsl --install` in a
-PowerShell opened **as administrator** and restart. Open Docker Desktop and
-wait for **Engine running**. Keep the project **outside OneDrive or iCloud**,
-because syncing the data files can lock them mid-import.
+## Features
 
-Run these in a terminal (in VS Code: **Terminal → New Terminal**):
+**Analytical Dashboard** (served by MongoDB)
 
-```bash
-git clone https://github.com/bonchaemanchae/ycq.git
-cd ycq
-cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+- **Zone maps:** filter by dates, days of the week, hours and boroughs; totals
+  for pickups, taxi balance, fare and trip length; a demand map and a shortages
+  map (zones where pickups outnumber drop-offs); every zone ranked; compare up
+  to three zones side by side
+- **Flow Explorer:** click a zone to see the top 10 places its trips go, by
+  month, weekday or weekend, and time band
+- **Daily trends:** pickups per day or hour with a moving average, and the
+  unusual days, at least 30% above or below a normal day of the same weekday
+- **Saved views:** save, open, rename and delete a dashboard view
+
+**Allocation Planner** (served by PostgreSQL)
+
+- **Build a plan:** choose a day, hours, fleet size and boroughs; the planner
+  ranks the zones for each hour and splits the fleet between them
+- **Edit and save:** change any number; a plan saves only when every hour adds
+  up to the fleet, and every save is a new version
+- **Saved plans:** each version is sealed by a hash chain; compare two
+  versions, rename or delete a plan
+
+**Administration** (admins only)
+
+- **User management:** invite people by email as Fleet manager or Admin; they
+  set their own password from a one-time link; disable accounts
+- **Data health:** whether every month loaded, whether both databases agree,
+  whether every saved view has an owner, and whether any saved plan was altered
+
+**Database evaluation** (admins only)
+
+- **Data pipeline:** how each row is checked, stored in PostgreSQL and
+  summarised into MongoDB, with the rejected rows and the rule that caught each
+- **Performance:** speed, size and throughput of both databases on the app's
+  own queries
+
+Admins also see on every page which collection answered each chart and how
+long it took, the planner's scoring details and its PostgreSQL vs MongoDB
+check. Fleet managers see only the answers.
+
+## How it works
+
+```
+TLC trip files ──> loader ──> PostgreSQL ──> MongoDB
+                  (checks,     (trips, zones,  (summaries for each
+                   imports,     users, plans)   page, saved views)
+                   summarises)       │              │
+                                     └──── api ─────┘ ──> website
 ```
 
-Open `.env`, replace every `change-me` value and save: the database
-passwords (including the API's own logins, `POSTGRES_APP_PASSWORD` and
-`MONGO_APP_PASSWORD`), `JWT_SECRET` (a random value of at least 32 characters; the API
-refuses to start without one) and the passwords of the three default accounts.
-Then:
+PostgreSQL keeps every trip, zone, user and saved plan, and enforces the rules
+itself: constraints, triggers and row-level security. MongoDB holds summaries
+built from PostgreSQL for the pages that are read most, plus the saved views.
+After every load the two are compared number by number.
 
-```bash
-docker compose up -d --build      # build the images and start everything
-docker compose logs -f loader     # watch the data load (Ctrl+C stops watching, not loading)
-```
+`docker compose up` starts six containers:
 
-The first start downloads and imports the data: about **5 minutes per month**.
-The website only comes up once the loader prints `all loaded: ...`. For a
-quicker first try, set `YCQ_MONTHS=2026-01` in `.env`. Then open:
+| Container | What it is | Address |
+|---|---|---|
+| `postgres` | PostgreSQL 16 with PostGIS 3.4 | `localhost:5432` |
+| `mongo` | MongoDB 8.0 | `localhost:27017` |
+| `loader` | Downloads the TLC files, builds the schema, imports each month, builds the summaries, fills MongoDB, checks both databases agree, then exits | `docker compose logs loader` |
+| `api` | FastAPI backend, connecting with its own restricted database logins | http://localhost:8000/docs |
+| `web` | React website | http://localhost:8080 |
+| `mailpit` | Test mail server that catches the invitation emails | http://localhost:8025 |
 
-- **http://localhost:8080**, the website. Log in as `admin@ycq.local`,
-  `analyst1@ycq.local` or `analyst2@ycq.local` with the passwords you put in
-  `.env`. The top bar should read *Data: Jan–Mar 2026* (or the months you
-  loaded). As an admin, the Administration page shows whether both databases
-  are up.
-- **http://localhost:8000/docs**, the API, where you can try every route.
-  Log in with `POST /auth/login`, then press **Authorize** and paste the token.
-- **http://localhost:8025**, Mailpit, a test inbox that catches the
-  invitation emails the website sends. Nothing reaches a real inbox.
+**Built with:** Python 3.12, Polars, psycopg 3, PyMongo, FastAPI, Argon2id
+password hashing; React 18, TypeScript, Vite, Leaflet, Recharts; Docker
+Compose.
 
-**Already set up before login existed?** Add `YCQ_ADMIN_PASSWORD`,
-`YCQ_ANALYST1_PASSWORD` and `YCQ_ANALYST2_PASSWORD` to your `.env` (see
-`.env.example`), make sure `JWT_SECRET` is at least 32 characters, and run
-`docker compose up -d --build`.
+More detail: [docs/database.md](docs/database.md).
 
-All `docker compose` commands must be run from the folder that contains
+## Quick start
+
+**You need** Docker Desktop. On Windows, first run `wsl --install` in a
+PowerShell opened as administrator, then restart. Open Docker Desktop and wait
+for **Engine running**. Keep the project outside OneDrive or iCloud, because
+syncing can lock the data files during an import.
+
+1. Get the code and create your settings file:
+
+   ```bash
+   git clone https://github.com/bonchaemanchae/ycq.git
+   cd ycq
+   cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+   ```
+
+2. Open `.env` and replace every `change-me` value (see
+   [Configuration](#configuration)).
+
+3. Build and start everything, then watch the data load:
+
+   ```bash
+   docker compose up -d --build
+   docker compose logs -f loader     # Ctrl+C stops watching, not loading
+   ```
+
+   The first start downloads and imports the data, about 5 minutes per month.
+   The website comes up once the loader prints `all loaded: ...`. Later starts
+   take seconds, because loaded months are skipped.
+
+4. Open http://localhost:8080 and log in with one of the default accounts,
+   using the passwords you set in `.env`:
+
+   | Email | Name | Role |
+   |---|---|---|
+   | `admin@ycq.local` | Admin | Admin |
+   | `analyst1@ycq.local` | Maya Chen | Fleet manager |
+   | `analyst2@ycq.local` | Daniel Rivera | Fleet manager |
+
+The API's own documentation, where every route can be tried, is at
+http://localhost:8000/docs (log in with `POST /auth/login`, then press
+**Authorize** and paste the token). Invitation emails arrive in the test inbox
+at http://localhost:8025; nothing reaches a real inbox.
+
+Run every `docker compose` command from the folder that holds
 `docker-compose.yml`.
 
-## What runs
+## Configuration
 
-`docker compose up` starts five containers:
+All settings live in `.env`, which is never committed.
 
-| Service | What it is | Where |
+| Setting | Required | What it is |
 |---|---|---|
-| `postgres` | PostgreSQL 16 + PostGIS | `localhost:5432` |
-| `mongo` | MongoDB 8.0 | `localhost:27017` |
-| `loader` | Downloads the TLC files into `data/`, applies `sql/`, loads zones, imports each month, builds summaries, fills MongoDB, runs reconciliation, then **exits**. Months already loaded are skipped, so later starts take seconds | `docker compose logs loader` |
-| `api` | FastAPI backend. Logs in with its own limited accounts, which the loader creates: PostgreSQL as `POSTGRES_APP_USER` (reads everything, writes only users and plans; `sql/015`), MongoDB as `MONGO_APP_USER` (reads the `ycq` database, writes only saved views). Neither is the owner or root | http://localhost:8000/docs |
-| `web` | React website; `/api/*` is forwarded to `api` | http://localhost:8080 |
-| `mailpit` | Test mail server: catches every email the API sends (invitations) and shows it in a web inbox | http://localhost:8025 |
-
-The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
-`docker compose down` and restarts. Only `docker compose down -v` deletes it.
-
-### Which page reads which store
-
-PostgreSQL is the source of truth; MongoDB holds summaries shaped for the
-pages that read them, rebuilt from PostgreSQL by the loader. Database
-evaluation → Data pipeline (steps 3 and 4) shows the same lists live, with
-row and document counts (`GET /admin/stores`).
-
-| PostgreSQL | One row is | Used by |
-|---|---|---|
-| `trip` (partitioned by month) | one taxi trip | every summary is built from it |
-| `rejected_trip`, `trip_warning` | a row that failed a rule / a suspicious value on a kept trip | Data pipeline |
-| `taxi_zone` | one TLC zone and its shape (PostGIS) | every map |
-| `zone_hour_observation` | one zone in one hour | Allocation Planner ranking (`api/planner.py`); copied to MongoDB |
-| `od_summary` (materialized view) | trips between two zones | copied to MongoDB for the Flow Explorer; Performance |
-| `allocation_plan_version` and its tables | one saved plan version | Saved plans |
-| `import_batch` | one imported file | Data health |
-
-| MongoDB | One document is | Used by |
-|---|---|---|
-| `zone_activity_daily` | one zone on one day | Zone maps |
-| `zone_activity_timeseries` (time-series) | one zone in one hour | Zone maps with hours filtered, comparing zones, the planner's MongoDB check |
-| `borough_activity_hourly` | one borough in one hour | Daily trends, the planner's weekday and hour data |
-| `origin_destination_snapshots` | one zone's top 10 destinations for a month, day type and time band | Flow Explorer |
-| `saved_analysis_views` | one saved view | Views menu |
-
-The dashboard picks the smallest collection that answers each question
-(`source` in `api/dashboard.py`).
-
-## Everyday commands
-
-| To | Run |
-|---|---|
-| Start (normal mode) | `docker compose up -d` |
-| Start in dev mode (while coding) | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` |
-| Stop (data is kept) | `docker compose down` |
-| Rebuild after code changes (normal mode) | `docker compose up -d --build` |
-| See what's running | `docker compose ps -a` |
-| See a container's output or errors | `docker compose logs api` (or `web`, `loader`, `postgres`, `mongo`) |
-| Restart one container | `docker compose restart api` |
-| Run the tests | `docker compose run --rm loader pytest tests` |
-| Delete all data and start over | `docker compose down -v`, then `docker compose up -d --build` |
-
-### Normal mode and dev mode
-
-- **Normal mode** (`docker-compose.yml`) is the finished app. Each image holds
-  a copy of the code taken at build time, and the website is compiled and
-  type-checked. This is what gets demoed and marked. After changing code you
-  must rebuild (`--build`) to see it.
-- **Dev mode** (`docker-compose.dev.yml`, added on top) is for writing code.
-  The `api` and `web` containers read your `api/` and `web/` folders directly:
-  save a file and the website updates itself, and the API restarts in a second
-  or two. No rebuilds. The first start takes a minute longer while it installs
-  the website's packages.
-
-Work in dev mode. Before you push, switch to normal mode once with
-`docker compose up -d --build` and click through your page, because dev mode
-skips the TypeScript check that the real build runs. You can switch between
-the modes any time; the data stays.
-
-To avoid typing the long dev command, add this line to your `.env` and every
-plain `docker compose` command uses dev mode (comment it out with `#` to go
-back). On macOS or Linux use `:` instead of `;`.
-
-```
-COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
-```
-
-### What to do after a change
-
-| You changed | Dev mode | Normal mode |
-|---|---|---|
-| `web/src/` (pages, components) | Nothing, it updates on save | `docker compose up -d --build web` |
-| `api/` (routes, planner) | Nothing, it restarts on save; refresh the page | `docker compose up -d --build api` |
-| `web/package.json` (new npm package) | `docker compose restart web` | `docker compose up -d --build web` |
-| `requirements.txt` (new Python package) | Add `--build api loader` to your start command | `docker compose up -d --build api loader` |
-| A new `sql/` file, or `etl/`, `scripts/` | See [Working with the database](#working-with-the-database) | same |
-| `.env` or `docker-compose*.yml` | Run your start command again | `docker compose up -d` |
-| `README.md` | Nothing | Nothing |
-
-After a `git pull`, run `docker compose up -d --build` if you're unsure what
-changed.
-
-## Adding your part
-
-The website follows a fleet manager's path: **look** at demand, **understand**
-why some zones run short, then **decide** where to station taxis. A sidebar
-lists the three pages and their sections; the top bar shows the loaded months.
-Administrators also see the database details on every page: which MongoDB
-collection answered each chart and how long it took, and the planner's
-scoring details and PostgreSQL vs MongoDB check. Analysts see only the answers.
-
-| Feature (owner) | Backend (FastAPI) | Website (React) | URL |
-|---|---|---|---|
-| Analytical Dashboard (Kessler) | `api/routers/dashboard.py`, pipelines in `api/dashboard.py` | `web/src/pages/Dashboard.tsx` | `/dashboard/overview`, `/timing` |
-| Flow Explorer (Caleb) | `api/routers/flows.py` | `web/src/pages/flows/FlowsPanel.tsx`, opened by clicking a zone on the Dashboard map | — |
-| Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
-| Saved Views (Caleb) | `api/routers/saved_views.py` | the **Views** menu beside the Dashboard filters | — |
-| Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/mailer.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `web/src/pages/Setup.tsx`, `/admin/users` | — |
-| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/users`, `/admin/health`, `/evaluation/pipeline`, `/evaluation/performance` |
-
-**Backend.** Add routes to your router file. A route `@router.get("/busiest")`
-in `flows.py` is served at http://localhost:8000/flows/busiest. Get
-PostgreSQL with `conn=Depends(get_pg)`, MongoDB with `mongo()` (both from
-`api/db.py`), and the logged-in user with `user: User = Depends(current_user)`.
-Every route shows up at http://localhost:8000/docs where you can try it. A
-brand-new router file has to be added in `api/main.py` to one of `PUBLIC` (no
-login), `ANY_ROLE` (analysts and admins) or `ADMIN_ONLY`; `tests/test_auth.py`
-calls every route to check it is protected as its list says.
-
-**Website.** Call the backend through `web/src/api.ts` and leave off the `/api`
-prefix: `api<MyType>("/flows/busiest")` or `post("/plans", body)`. The
-shared map is `web/src/components/ZoneMap.tsx`; pass
-`values={{ [location_id]: number }}` to colour zones (add `diverging` when
-values can be negative: positive zones are drawn red, negative blue). Charts
-use Recharts. A brand-new page or section has to be added to `NAV` and to the
-routes in `web/src/App.tsx` to appear in the sidebar.
-
-### Analytical Dashboard
-
-The landing page: one page with two sections, Zone maps and then Daily trends below it (the sidebar's two items scroll to them, and show which one is in view). Both follow the same filters: a date range, days of the week, a range of hours
-(22 to 2 wraps past midnight) and boroughs.
-
-| Section | Question | Shows |
-|---|---|---|
-| Zone maps | Where do people want taxis, and where do taxis run short? | four headline totals at the top (pickups a day, or an hour when hours are filtered; the taxi balance, pickups minus drop-offs; the average fare with what it earns per taxi-hour; the average trip time and distance) (pickups, drop-offs, average fare, average trip) and one map with a **Demand \| Shortages** switch: by pickups, with every zone ranked beside it with its share of pickups, or by pickups minus drop-offs (red short of taxis, blue piling up), with the zones short of taxis and those with too many. **+** on a zone adds it to the comparison under the map (up to three: median and 90th percentile of hourly pickups, peak hour, fare, trip length); clicking a zone opens the Flow Explorer in the same panel |
-| Daily trends | How steady is demand, and which days broke the pattern? | pickups per day or hour with a moving average; the **unusual days**, each at least 30% above or below the median of the same day of the week over the chosen dates (each Sunday against a normal Sunday) (marked on the chart and listed) |
-
-**From the dashboard to the planner.** The toolbar's **Allocate taxis →** button (the toolbar shows the filters in words, opens them in a panel, holds the **Views** menu, and stays at the top of the window while the page scrolls)
-opens the Allocation Planner with what the dashboard is filtered to; the
-shift itself is chosen in the planner. The planner starts on the busiest
-shift inside the dashboard's weekdays and hours (or on the exact shift, when
-the filters name one weekday and one hour range). It takes the boroughs too, and the zones the analyst looked
-at (opened in the Flow Explorer or compared), which the plan marks, or lists
-with one click to add them. A banner in the planner says what came across,
-that plans learn from every loaded month whichever dates the dashboard
-showed, and links back; the dashboard keeps its state for the browser tab, so
-going back returns to the same view (`planLink` in
-`web/src/pages/planner/types.ts`).
-
-Clicking a zone on the map in Zone maps opens the **Flow Explorer**
-beside it: the top 10 destinations of trips from that zone, drawn as lines on
-the same map, for a month, weekday or weekend, and time band (the snapshot
-closest to the filters, which the analyst can change), and optionally the same
-slice across every month. It explains a shortage: from JFK, most trips go to
-Manhattan, so JFK's taxis leave and don't come back on their own.
-
-The dashboard reads MongoDB through these routes (each takes the filters as
-query parameters, named like a saved view's filters):
-
-| Route | What it returns | MongoDB features |
-|---|---|---|
-| `GET /dashboard` | Totals and every zone with its rank, share and imbalance (map, tables) | `$facet`, `$setWindowFields` (`$rank`, window `$sum`) |
-| `GET /dashboard/series` | Pickups and drop-offs per day or hour, with a 7-day or 24-hour moving average; per day, a normal day of the same day of the week and the unusual days | `$setWindowFields` (window `$avg`; window `$median` partitioned by weekday) |
-| `GET /dashboard/weekdays` | Average pickups per day for each weekday, and for each weekday and hour (the Allocation Planner's busiest shifts) | `$facet`, two-stage `$group` |
-| `GET /dashboard/compare` | Up to three zones side by side: median and 90th percentile of hourly pickups, peak hour | `$median`, `$percentile` |
-| `GET /dashboard/context` | Loaded date range, latest import and your recent plans (PostgreSQL) | — |
-
-Averages are total sums divided by total counts, so they match PostgreSQL for
-the same rows (`tests/test_dashboard.py` checks every route against
-`zone_hour_observation`).
-
-Each question reads the smallest of three collections that holds what it
-needs (`source()` in `api/dashboard.py`). All three are built from
-`zone_hour_observation` with the same field names, so the pipelines are the
-same on each:
-
-| Collection | One document per | Documents (3 months) | Used for |
-|---|---|---|---|
-| `zone_activity_timeseries` | zone and hour (time series) | 567,817 | the summary when hours are filtered, any question about chosen zones, comparing zones |
-| `zone_activity_daily` | zone and day | 23,670 | the summary (map, totals, ranked zones) |
-| `borough_activity_hourly` | borough and hour | 12,954 | activity over time, weekdays |
-
-Every response says which collection answered (`source`) and how long it took
-(`queryMs`); an admin sees it under each
-chart. The loader builds the two
-pre-summed collections with the others, and reconciliation checks every field
-of every document against PostgreSQL.
-
-Activity documents hold sums and counts only (`fareSum`, `fareTripCount` and
-so on); the API divides them for whatever it adds up. They used to store the
-three averages too, which were `null` for an hour without trips. In a
-time-series collection a field that is `null` in one document and a number in
-the next closes the bucket, so the three months sat in 169,166 buckets of
-about 3 measurements each, and reading them was the slowest thing in the app.
-Without the averages they fit in 1,052 buckets, none closed by a change of
-type. On the same laptop the benchmark's three-month questions on the time
-series went from 1,787 and 1,919 ms to 62 and 76 ms, and the hourly map under
-80 simultaneous users from 58 failed requests to none.
-
-The map's summary groups the documents by zone, and that group holds nothing
-but sums. It used to take each zone's borough with `$first` and collect each
-zone's dates with `$addToSet` to count the days. On the time series those two
-cost more than the eight sums together (64 ms for the sums alone, 157 ms with
-both). The borough is now part of the group's key, and the days are counted
-by a second, small query on the borough-hour documents (`days_pipeline` and
-`days_source` in `api/dashboard.py`). With an hour filter over three months
-the map went from about 3 requests a second to 12 for one user and 27 to 29
-for 20 to 80 users, and the 95th percentile response at 80 users from 28
-seconds to 3.3.
-
-A database loaded with the old layout is rebuilt by itself: the loader drops
-the three activity collections if they still hold averages
-(`drop_old_layouts` in `etl/load_mongo.py`) and loads them again from
-PostgreSQL, about 40 seconds for three months.
-
-### Allocation Planner
-
-**Build a plan** has two steps. **1. Shift, taxis and area**: the weekday,
-from and to, how many taxis and the boroughs, the five things a fleet manager
-decides, in one filter row. The planner
-opens on the busiest shift. How zones are ranked is fixed at the defaults
-(pickup activity 0.50, net outflow 0.25, consistency 0.15, median fare 0.10,
-up to 10 zones an hour): they are stored with every version, PostgreSQL checks
-the weights add up to 1, `POST /plans/preview` accepts others, and only admins
-see them. Every change works the plan out again by itself (`POST /plans/preview`; the taxis box waits for typing to
-stop). **2. Your plan**: a row per zone and a column per hour, every
-number editable, each hour's total under it (every hour must add up to the
-fleet; **Fix** puts the difference right). The planner **recommends** the top
-zones each hour among those with at least 30 pickups at that hour over the
-loaded weeks, and splits the taxis between them in proportion to score ×
-average pickups, so a zone with twice the pickups gets about twice the taxis.
-It **allows** any zone of the chosen boroughs: quieter ones show their pickups
-a day and can be given taxis like any other (the database only refuses zones
-outside the plan's boroughs; clicking one on the map says which borough it is
-in, with a button to add that borough). Each zone shows only what sets it apart (High fares, Steady, ⚠ Uneven week to week, Few trips); hovering its name gives the full reason. The Taxis box is the fleet for the
-whole shift (the same taxis every hour). Until the analyst types a number it
-holds, in grey, the demand of the shift's busiest hour: the plan's zones'
-pickups an hour times the average trip time (Little's law: about how many
-taxis are busy with passengers at once), and it follows the shift and the
-boroughs; a typed number is never changed by the planner. An hour whose
-demand needs more taxis than the fleet is tinted down its column, with
-"⚠ needs ≈N" under the hour (the hour shown on the map is tinted blue-grey
-instead). For admins, **Why?** on a zone shows the numbers
-behind its ranking. **Save plan** saves it as a new
-plan or a new version of one, sealed for good. **Saved plans** lists them,
-with their versions to open or compare.
-
-### Saved views
-
-The Analytical Dashboard has a **Views** menu beside its filters: name what you are looking
-at and save it, open it again later, save changes into it, rename it or
-delete it. Views are each user's own and live in MongoDB
-(`saved_analysis_views`), so this is the app's CRUD on the NoSQL side, as
-plans are on the PostgreSQL side.
-
-| Route | What it does |
-|---|---|
-| `GET /views?page=dashboard` | Your views, newest first (optionally one page's) |
-| `POST /views` | Save `{name, page, filters, widgets}` |
-| `GET /views/{id}` | One view |
-| `PATCH /views/{id}` | Rename, or store the page's new filters or widgets. With `expectedUpdatedAt`, 409 if the view changed since |
-| `DELETE /views/{id}` | Delete it |
-
-`filters` are the page's own, defined once in `api/filters.py`: the
-dashboard's date range, weekdays, hours, boroughs and metric, or the Flow
-Explorer's origin zone, month, day type and time of day. A view holds only
-its page's filters, so it always reopens as saved, and MongoDB's
-`$jsonSchema` validator is generated from the same definition. `widgets` is
-free-form: the dashboard keeps its section, compared zones, hourly or daily
-chart and the open Flow Explorer slice there. Views saved before the Flow
-Explorer became a panel (page `flows`) still open, into that panel. A zone or
-borough is checked against PostgreSQL before a view is saved, since MongoDB
-can't hold a foreign key into it.
-
-Two tabs can have the same view open. The panel sends the `updatedAt` it
-loaded with every change, and MongoDB makes the change only if the view still
-has it (one atomic `find_one_and_update`); otherwise the API answers 409 and
-the panel loads the view again, so the second save can't silently undo the
-first. No lock is held while you edit: this is optimistic concurrency, with
-the check at the write.
-
-### Rules the database enforces on saved plans
-
-Saved allocation plans are checked by the database itself, not only by the API
-(`sql/006`, `011`, `012`, `017`):
-
-- every hour of a version adds up exactly to the fleet size, and no hour in the
-  version's range is missing;
-- every result's zone has a map shape and is in one of the version's boroughs;
-- a saved version, its boroughs and its results can't be updated or deleted on
-  their own. Changes are saved as a new version, and deleting the plan removes
-  all its versions;
-- a saved version takes no more rows.
-
-**Hash chain.** Those triggers stop the API, but the database owner could
-switch one off, edit a row and switch it back on. So each version is sealed
-when it is committed (`sql/017`): `allocation_plan_version_seal` holds a
-SHA-256 of the version's settings, boroughs and results together with the hash
-of the version before it, so a plan's versions form a chain. Editing a version
-changes what its hash should be, and replacing its seal to match breaks the
-next version's link.
-
-- The Planner shows each version's hash, or a warning if it no longer matches.
-- Administration → Data health recomputes every hash each time it opens
-  (`GET /admin/plan-seals`).
-- In psql: `SELECT * FROM plan_seal_check() WHERE problem IS NOT NULL;`
-
-The API's login can read seals but not write them; the sealing trigger runs
-with the owner's rights. The chain can't show a rewrite of a version and every
-seal after it, or the removal of a plan's newest version, unless someone kept
-a copy of the latest hash.
-
-### Users and login
-
-- **Accounts:** the three default accounts are created by the loader from `.env`
-  (`scripts/seed_users.py`); an account whose password variable is empty isn't
-  created. Changing a password in `.env` updates it on the next
-  `docker compose up -d`. There is no self sign-up.
-- **Inviting** (Administration → User management): an admin enters an email,
-  a name and a role, never a password. The API creates the account with no
-  password (`password_hash` is NULL, so nothing can log in to it) and emails a
-  one-time link (`api/mailer.py`) to `/setup#<token>`, where the person sets
-  their own password and is logged in. Only the token's SHA-256 hash is
-  stored (`account_invite`, `sql/019`), so the table can't be turned back
-  into links. A link works once, expires after 48 hours, and stops working
-  when a newer link replaces it or the account is disabled; a partial unique
-  index allows one open link per account. The token sits after `#`, which
-  browsers never send to a server, so it stays out of web server logs.
-  User management also shows the link to copy, in case the email fails.
-- **Email:** in Docker Compose the API sends to Mailpit (http://localhost:8025).
-  To send real email, set `SMTP_HOST` and `SMTP_PORT` to a real mail server and
-  `APP_URL` to where the website is.
-- **Passwords** are stored as Argon2id hashes. Logging in returns a token valid
-  for 8 hours; the website keeps it until the tab is closed. The token only
-  says who you are: your roles and whether your account still exists are
-  checked on every request, so changes apply immediately.
-- **Roles:** analysts use every page except Administration; admins use all of
-  them.
-- **Database roles:** the API never connects as the database owner. Its
-  PostgreSQL login is a member of `ycq_write` (`sql/015`), which can read
-  every table but only write `app_user`, `app_user_role` and the four plan
-  tables, and the invitations: it can't create, alter or drop anything,
-  delete accounts, or touch trips, imports and summaries. `ycq_read` is the same without the writes. The loader, the
-  tests and `psql` use the owner (`POSTGRES_USER`). `tests/test_db_roles.py`
-  runs the whole app as such a role and checks what it is refused.
-- **MongoDB role:** the API's MongoDB login holds only the custom role
-  `ycqApp` (`etl/load_mongo.py`): it can read every collection in `ycq` and
-  insert, update and delete only in `saved_analysis_views`. It can't change
-  the activity data or flow snapshots, create or drop collections or indexes,
-  or reach other databases. The loader uses root.
-- **Orphaned saved views:** a saved view's owner is a PostgreSQL user, a link
-  no foreign key can hold. Administration → Data health shows, live,
-  whether every view's owner still exists, and can delete views whose owner is
-  gone (`GET`/`DELETE /admin/orphaned-views`); each reconciliation run records
-  it too. The app never deletes users, so it never leaves orphans; a user
-  deleted straight in `psql`, or one database restored without the other, can.
-- **Row-level security on plans** (`sql/016`): PostgreSQL itself decides
-  which plans a query reaches. For each request the API tells it who is
-  calling (`app.user_id`, set in `api/auth.py` and cleared when the
-  connection goes back to the pool in `api/db.py`). A plan, its versions and
-  results can be read by their owner or an active admin (User management
-  counts everyone's plans) and changed only by their owner; with no user set
-  nothing is visible. So even a query that forgot `WHERE owner_user_id = ...`
-  would only reach the caller's plans. `v_plan_summary` uses
-  `security_invoker` so the view doesn't skip the rules. The owner role
-  bypasses them, so the loader and tests are unaffected.
-- **Disabling a user** (Administration → User management) stops their login
-  and every session they hold at once, and revokes any open invitation. Their
-  saved plans (and the hash chain over them, `sql/017`) and saved views are
-  kept, and an admin can enable the account again. Accounts are never deleted
-  from the app: the API's database role can't delete them. You can't disable
-  yourself, and the last admin who can log in can't be disabled (two admins
-  disabling each other at once take turns, so one always remains).
-
-## Working with the database
-
-### See what's loaded
-
-- **Website:** the top bar lists the loaded months, and Administration → Data
-  health shows rows read, warned and rejected per month, and whether both
-  databases agree.
-- **Loader output:** `docker compose logs loader` shows each month's counts and
-  whether reconciliation **PASSED**.
-- **PostgreSQL shell**, no password needed:
-
-  ```bash
-  docker compose exec postgres psql -U ycq -d ycq
-  ```
-
-  Useful queries: `\dt` (tables), `\d trip` (one table's columns),
-  `SELECT file_month, rows_read, rows_accepted, rows_rejected FROM import_batch;`,
-  `SELECT reason_code, count(*) FROM rejected_trip GROUP BY 1;`. Quit with `\q`.
-
-- **MongoDB shell:**
-
-  ```bash
-  docker compose exec mongo sh -c 'mongosh -u "$MONGO_INITDB_ROOT_USERNAME" -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin ycq'
-  ```
-
-  Useful commands: `show collections`,
-  `db.zone_activity_timeseries.findOne()`,
-  `db.origin_destination_snapshots.countDocuments()`. Quit with `exit`.
-
-- **With a GUI:** DBeaver or pgAdmin at `localhost:5432` (database `ycq`), and
-  MongoDB Compass with
-  `mongodb://ycq:<MONGO_PASSWORD>@localhost:27017/?authSource=admin`. The users
-  and passwords are the ones in your `.env`.
-
-### Change the schema
-
-Add a **new** numbered file in `sql/` (for example `014_my_table.sql`). Never
-edit one that is already in `main`. Every file is applied again on each
-loader run, so write it to be safe to re-run (`CREATE TABLE IF NOT EXISTS`,
-`CREATE OR REPLACE VIEW`, and so on). Then apply it:
-
-```bash
-docker compose up -d --build loader
-```
-
-Your loaded data stays. Check the loader log for errors.
-
-### Change the MongoDB validators or indexes
-
-Edit `ensure_collections` in `etl/load_mongo.py`, then run
-`docker compose up -d --build loader`. The loader re-applies them on every
-run.
-
-### Add another month
-
-Add it to `YCQ_MONTHS` in `.env` (for example
-`YCQ_MONTHS=2026-01 2026-02 2026-03 2026-04`) and run `docker compose up -d`.
-The loader downloads and imports only the new month and refreshes the
-planner's median fares. Then add its checksum to `KNOWN_SHA256` in
-`scripts/download_data.py` and its counts to the results table below.
-
-### Change the import rules or summaries
-
-A month can only be imported once (rule R5). To import it again after a change
-to `etl/import_month.py`, or because TLC republished it, remove just that month
-first. Users, plans and saved views are kept:
-
-```bash
-docker compose build loader
-docker compose run --rm loader python etl/delete_month.py --month 2026-01
-docker compose up -d                  # the loader imports the month again
-```
-
-`delete_month.py` removes, in one transaction, the month's trips (its
-partition), warnings, rejected rows, hourly summaries and import batch, then
-refreshes the views and deletes the month's MongoDB documents. If the next month
-is loaded too, rebuild its summaries afterwards (below), because drop-offs late
-on the deleted month's last day are counted there. Run the tests after any rule
-change.
-
-`docker compose down -v` also starts over, but it deletes **everything**,
-including users, plans and saved views that can't be rebuilt.
-
-A change to `build_aggregates.py` or `load_mongo.py` doesn't need a re-import.
-Those scripts delete a month before rebuilding it, so you can rerun them per
-month:
-
-```bash
-docker compose build loader
-docker compose run --rm loader python etl/build_aggregates.py --month 2026-01
-docker compose run --rm loader python etl/load_mongo.py --month 2026-01
-docker compose run --rm loader python etl/reconcile.py --month 2026-01
-```
-
-`docker compose run --rm loader python <script>` runs any ETL script without
-installing Python yourself.
-
-### Load the data step by step
-
-This is what the loader does, one step at a time. Use it to run a single step
-(prefix each line with `docker compose run --rm loader`, or run it in a local
-`.venv`; see [Without Docker](#without-docker)):
-
-```bash
-python scripts/download_data.py --months 2026-01 2026-02 2026-03
-python etl/setup_db.py
-python etl/load_zones.py
-# then for each month, in order:
-python etl/import_month.py     --month 2026-01
-python etl/build_aggregates.py --month 2026-01
-python etl/load_mongo.py       --month 2026-01
-python etl/reconcile.py        --month 2026-01
-```
-
-`reconcile.py` must print **PASSED**, and the counts must match the
-[results table](#results-january-to-march-2026).
-
-- Downloads (trip files and both zone files) are checked by SHA-256. A file
-  that differs is renamed to `.mismatch` so it can't be imported.
-- `reconcile.py` recomputes every number in every MongoDB document (counts,
-  sums, averages, destination shares) from PostgreSQL, so a hand edit to any
-  of them makes it fail.
-- An import is one transaction. The same file, or a second file for a month
-  that's already loaded, is refused (R5), so re-running is harmless.
-- `build_aggregates.py` and `load_mongo.py` delete the month before inserting,
-  so re-running gives the same result.
-
-### Run the benchmark
-
-Compares PostgreSQL and MongoDB on the app's own questions. Run it after all
-months are loaded; it takes a few minutes and the results appear under
-Database evaluation → Performance.
-
-```bash
-docker compose build loader                                   # picks up the script
-docker compose run --rm loader python etl/benchmark.py        # 50 timed runs per query
-docker compose run --rm loader python etl/benchmark.py --explain-summary 2026-01
-```
-
-It copies the summaries into three benchmark stores (`bench_zone_hour` in
-PostgreSQL, `bench_zone_hour_collection` and `bench_zone_hour_timeseries` in
-MongoDB) with equivalent indexes, then runs four queries against each: one zone
-for one hour, one zone over seven days, totals for every zone over a month,
-and the top 10 zones for a month. A fifth query tests the Flow Explorer, the
-case MongoDB was chosen for: the top 10 destinations for one origin zone,
-filtered and sorted from `od_summary` in PostgreSQL against one embedded
-document in `origin_destination_snapshots`. It records a cold run, the median
-and 95th percentile of the timed runs, data and index size, load time and each
-query plan, and saves them to `benchmark_run` only if every store gave the same
-answers. Questions 6 and 7 are the Analytical Dashboard's heaviest over all three
-months (every zone's totals, and pickups by weekday and hour), on the app's
-real stores: `zone_hour_observation`, the hourly time series, and the
-pre-summed collection the dashboard reads. `--explain-summary` prints
-`EXPLAIN ANALYZE` of one month's summary build and changes nothing.
-
-### Evaluate the planner and load-test the API
-
-Both only read data. The backtest makes plans from January and February, using
-the real planner code, then scores them on March, which they never saw, against
-two simple alternatives:
-
-```bash
-docker compose build loader                                     # picks up the scripts
-docker compose run --rm loader python etl/backtest_planner.py
-```
-
-The load test sends real requests to the running API from 1, 5, 10, 20, 50 and
-80 simultaneous users, and reports requests per second, response times and
-failures. It logs in as `analyst1@ycq.local`, so that account needs its password
-in `.env`, and takes about 10 minutes. The results are saved in the
-`load_test_run` table (`sql/018`), one row per question and number of users
-(`--no-save` skips this), and the latest run appears under Database
-evaluation → Performance, Throughput:
-
-```bash
-docker compose run --rm loader python etl/load_test.py
-docker compose run --rm loader python etl/load_test.py --only flow --users 49 50 --seconds 6
-docker compose exec postgres psql -U ycq -d ycq -c "SELECT question, users, requests_per_sec, median_ms, p95_ms, failed FROM load_test_run WHERE run_at = (SELECT max(run_at) FROM load_test_run) ORDER BY load_test_run_id"
-```
-
-### Measure the design choices
-
-`etl/evidence.py` shows why each store is laid out as it is. It reads the real
-databases, builds its one experiment in a scratch MongoDB database that it
-drops afterwards, and takes about a minute:
-
-```bash
-docker compose run --rm loader python etl/evidence.py
-docker compose run --rm loader python etl/evidence.py --only buckets
-```
-
-| Part | What it measures |
-|---|---|
-| `buckets` | The hourly documents copied into two time-series collections: with averages that are `null` for an hour without trips, and with sums and counts only, as stored. Buckets used, buckets closed by a change of type, load time and the dashboard summary's time |
-| `routing` | The dashboard's three questions over every loaded month, on the hourly time series and on the pre-summed collection the API picks, with the answers compared |
-| `timestamp` | The same totals with dates matched on `localDate` and on the time series' own `timestamp` |
-| `plans` | PostgreSQL's `EXPLAIN ANALYZE` for a week of trips (one partition, through its BRIN index) and for the planner's statistics, and MongoDB's execution statistics for the dashboard and Flow Explorer reads |
-
-## Tests
+| `POSTGRES_PASSWORD`, `MONGO_PASSWORD` | Yes | Passwords of the database owners, used by the loader and tests |
+| `POSTGRES_APP_PASSWORD`, `MONGO_APP_PASSWORD` | Yes | Passwords of the API's restricted logins |
+| `JWT_SECRET` | Yes | Signs login tokens; at least 32 characters, or the API won't start. Make one with `python -c "import secrets; print(secrets.token_hex(32))"` |
+| `YCQ_ADMIN_PASSWORD`, `YCQ_ANALYST1_PASSWORD`, `YCQ_ANALYST2_PASSWORD` | Yes | Passwords of the three default accounts, at least 12 characters. Leave one empty to skip that account |
+| `YCQ_MONTHS` | No | Months to load, default `2026-01 2026-02 2026-03`. Set `2026-01` for a quicker first try |
+| `YCQ_DOWNLOAD` | No | `0` uses the files already in `data/` instead of downloading |
+| `API_PORT`, `WEB_PORT` | No | Change these if 8000 or 8080 is in use |
+| `SMTP_HOST`, `SMTP_PORT`, `APP_URL` | No | To send real email, point these at a mail server and at where the website runs |
+
+Changing a password in `.env` updates the account on the next
+`docker compose up -d`.
+
+## Using the app
+
+1. **Log in** at http://localhost:8080. There is no sign-up: an admin invites
+   each person.
+2. **Find where demand is.** Zone maps opens on all three months. Use
+   **Filters** to narrow the dates, days, hours or boroughs; any filter that is
+   on shows as a yellow chip, and the map zooms to the chosen boroughs.
+3. **Find where taxis run short.** Switch the map to **Shortages**: red zones
+   lose more taxis than they gain. Click a zone to open the Flow Explorer and
+   see where its trips go; press **+** to compare it with others.
+4. **Plan the shift.** Press **Allocate taxis**. The planner opens with your
+   filters and the zones you looked at. Set the day, hours, fleet size and
+   boroughs, adjust any number, then **Save plan**.
+5. **Review plans** under **Saved plans**: open, compare, rename or delete.
+6. **Admins:** invite or disable users under **User management**, and check
+   **Data health** after loading data.
+
+## Testing
 
 ```bash
 docker compose build loader          # picks up changed tests
 docker compose run --rm loader pytest tests
 ```
 
-The tests build separate `ycq_test` databases in the same containers, so your
-real data is never touched. They import small hand-made files with the real
-scripts, then check every import rule, the hourly grid (including the
-daylight-saving hour), rebuilds, the median fare table, the plan rules, and
-MongoDB's validators and reconciliation. A run takes under a minute.
+377 tests run against separate `ycq_test` databases in the same containers,
+so your real data is never touched. They load small hand-made files with the
+real scripts.
 
-## Without Docker
-
-Only needed if you want to run the Python or the website on your own machine.
-You need **Python 3.12** and **Node.js 22**. The databases still run in Docker.
-
-```bash
-py -3.12 -m venv .venv        # Windows; macOS: python3 -m venv .venv
-.venv\Scripts\activate        # Windows; macOS: source .venv/bin/activate
-pip install -r requirements.txt
-docker compose stop api web                 # frees ports 8000 and 8080
-uvicorn api.main:app --reload               # terminal 1, repo root
-cd web && npm install && npm run dev        # terminal 2: http://localhost:5173
-```
-
-On Windows use the `py` launcher: other Pythons on the PATH (such as MSYS2)
-can't install Polars or psycopg. `.env` already points at `localhost`, which is
-right for this setup. `pytest` from the repo root runs the tests.
-
-## Repository layout
-
-```
-api/        FastAPI backend: main.py, db.py, auth.py, planner.py, routers/ (one per feature)
-web/        React + TypeScript (Vite) website: src/pages/ (one per feature), src/components/
-sql/        schema, applied in number order by etl/setup_db.py
-etl/        load_all (what the loader container runs), setup_db, load_zones,
-            import_month, build_aggregates, load_mongo, reconcile, delete_month,
-            benchmark, backtest_planner, load_test, evidence
-scripts/    download_data.py (TLC files + checksum check)
-tests/      pytest suite (uses its own ycq_test databases)
-data/       downloaded files (not in git)
-docker-compose.yml       normal mode
-docker-compose.dev.yml   dev mode, added on top of the normal file
-```
-
-One `requirements.txt` covers the API, the ETL and the tests; the `api` and
-`loader` images both install it.
-
-## Import rules
-
-Every row is either **accepted** into `trip` or **rejected** into
-`rejected_trip` with one reason code (the first rule that applies, checked in
-the order R1, R2, R3, R6, R4, R8, R9, R7):
-
-| Code | Rejected when |
+| Area | What the tests prove |
 |---|---|
-| R1 | Pickup or drop-off time missing |
-| R2 | Drop-off before pickup |
-| R3 | Pickup outside the file's month |
-| R6 | Trip longer than 24 hours |
-| R4 | Pickup zone missing or has no map shape (zones 264, 265) |
-| R8 | Vendor, payment type or rate code not in its lookup table (rate code 99 and a missing rate code are still accepted). None in the three 2026 files; without it, one such row would abort the whole month |
-| R9 | Impossible value: negative passenger count, or a passenger count, distance or money amount too large for its column, or not a number (NaN, infinity). None in the three 2026 files; same reason as R8 |
-| R7 | Reversal: a negative fare with a positive twin (same vendor, pickup time, pickup zone, drop-off zone, opposite fare). Paired one to one; the original is kept |
-| R5 | File refused: the same file, or another file for the same month, was already imported (the import stops and writes nothing) |
+| Data loading | Every reject and warning rule catches the right rows; accepted plus rejected equals rows read; a month can't load twice; daylight saving and month-end drop-offs are handled |
+| Database rules on plans | The triggers refuse a plan whose hours don't add up, a zone outside its boroughs, or an edit to a saved version; the hash chain catches a change made with the triggers switched off |
+| Security | Argon2id password hashing; every route has the right protection; the API's database login isn't a superuser and can't delete accounts; row-level security limits each user to their own plans; invitation links work once and expire |
+| MongoDB | Validators refuse bad documents; reconciliation catches a tampered document; saved views do full create, read, update and delete for their owner only, and refuse an update from a stale copy |
+| Both databases agree | Every dashboard number is checked against PostgreSQL; the planner's statistics are the same in both databases; the same inputs always give the same plan |
+| Evaluation tools | The benchmark's maths and stores are right; the backtest can't see the month it is scored on; the load test and evidence scripts change nothing |
 
-Accepted trips can carry warnings in `trip_warning` (one row per warning). A
-warned trip stays in `trip` but is left out of the averages it would distort:
+## Performance evaluation
 
-| Code | Warning | Left out of |
-|---|---|---|
-| W1 | Distance 0 or less (often a Flex Fare trip with no distance recorded) | distance averages |
-| W2 | Fare 0 or less | fare statistics |
-| W3 | Distance over 100 miles | distance averages |
-| W4 | Fare over $500 | fare statistics |
-| W5 | Duration over 6 hours | duration averages |
-| W6 | Drop-off zone missing or has no map shape | drop-off counts and flows |
-| W7 | Voided trip (payment type 6) | every summary |
-| W8 | Implied speed over 80 mph (trips with a real duration) | distance and duration averages |
-| W9 | Drop-off time not recorded (same as pickup time; vendor 7 sends every trip this way) | duration averages |
+Four tools measure the design. All of them only read data. Run them after
+every month is loaded:
 
-Other rules: fare statistics use metered trips only (not payment type 0, Flex
-Fare) with a fare above zero; rate code 99 (unknown) is stored as NULL; times
-stay in New York local time, and the hourly grid follows the real clock (8 March
-2026 has 23 hours).
+| Tool | What it measures | Command | Results |
+|---|---|---|---|
+| Speed benchmark | 7 queries the app runs, 50 times each, on the same data in PostgreSQL, a MongoDB collection, a MongoDB time-series collection and the pre-summed collections. Median and 95th percentile, storage size, load time and each query plan. Saved only if every store returns the same answers. Takes a few minutes | `docker compose run --rm loader python etl/benchmark.py` | Database evaluation → Performance |
+| Load test | Requests a second, response times and failures for five features, with 1, 5, 10, 20, 50 and 80 users at once through the real API and logins. Takes about 10 minutes | `docker compose run --rm loader python etl/load_test.py` | Database evaluation → Performance, Throughput |
+| Planner backtest | Plans built from January and February only, scored on March against "busiest zones" and random zones | `docker compose run --rm loader python etl/backtest_planner.py` | Printed in the terminal |
+| Design evidence | Why each store is laid out as it is: bucket counts, which collection answers each dashboard question, and the query plans. Takes about a minute | `docker compose run --rm loader python etl/evidence.py` | Printed in the terminal |
 
-## Results (January to March 2026)
+Run `docker compose build loader` first if the scripts changed. The load test
+logs in as `analyst1@ycq.local`, so that account needs its password in `.env`.
+The API and the load test share one machine, so compare its ratios rather than
+the absolute numbers.
 
-Official TLC files, checked by SHA-256 (first 16 characters):
-`8b3933fe6f0d7b6d` (Jan), `5352ca800f29c40a` (Feb), `d7af794a7ac06cbb` (Mar).
+**Headline results** (January to March 2026):
+
+- PostgreSQL is fastest for small lookups (one zone, one hour: 0.12 ms).
+- The MongoDB time-series collection is 19 times smaller than PostgreSQL and
+  fastest for the top 10 zones in a month, but takes twice as long to load.
+- The pre-summed collections answer the dashboard 1.8 to 3.1 times faster than
+  PostgreSQL for about 4 MB of extra storage.
+- Planner backtest: the zones the planner picks cover 69.3% of March's taxi
+  shortage, against 61.3% for the busiest zones and 3.8% for random zones.
+
+Options and details: [docs/database.md](docs/database.md#evaluation-tools).
+
+## Data
+
+- **Source:** the official [NYC TLC yellow taxi trip records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page)
+  for January to March 2026, and TLC's 263 taxi zones with their map shapes.
+- **Checked:** each download is matched against a SHA-256 checksum pinned in
+  the repository; a file that differs is never imported.
+- **Cleaned, not dropped:** every row is either accepted into PostgreSQL or
+  kept aside with the rule that rejected it. Accepted rows with a suspicious
+  value are kept, flagged, and left out of the averages it would distort.
 
 | | January | February | March |
 |---|---:|---:|---:|
 | Rows read | 3,724,889 | 3,399,866 | 3,952,451 |
 | Accepted | 3,683,870 | 3,371,085 | 3,927,859 |
 | Rejected | 41,019 | 28,781 | 24,592 |
-| R2 / R3 / R4 / R6 | 1 / 7 / 5,928 / 35 | 2 / 16 / 5,021 / 37 | 2 / 19 / 6,249 / 28 |
-| R7 reversals | 35,048 | 23,705 | 18,294 |
-| Trips with warnings | 191,613 | 182,215 | 188,862 |
-| W1 / W2 / W3 / W4 | 122,233 / 6,353 / 153 / 47 | 120,518 / 5,282 / 165 / 46 | 118,279 / 5,318 / 153 / 41 |
-| W5 / W6 | 1,270 / 18,807 | 1,072 / 16,530 | 777 / 17,405 |
-| W8 / W9 | 828 / 45,022 | 730 / 40,550 | 1,092 / 49,072 |
-| Zone-hour rows | 195,672 (263 × 744) | 176,736 (263 × 672) | 195,409 (263 × 743) |
-| Origin-destination trips | 3,665,063 | 3,354,555 | 3,910,454 |
-| MongoDB OD snapshots | 2,478 | 2,483 | 2,491 |
-| Reconciliation | passed | passed | passed |
+| Both databases agree | yes | yes | yes |
 
-After all three months, `zone_weekday_hour_fare` (the planner's median fares)
-has 34,521 rows built from 7,911,745 metered trips. No month has voided trips
-(W7). In January, 35,171 negative-fare rows have a positive twin; 123 of them
-already fail an earlier rule (121 R4, 1 R3, 1 R6), so 35,048 are recorded as R7
-and every reversal is still rejected. Drop-offs are counted in the hour they
-happen, so 2,250 January trips add their drop-off to 1 February.
+The full rules and per-rule counts: [docs/data.md](docs/data.md).
 
-Known data notes: 25–26 January and 22–23 February have very low volume
-because of two blizzards (real events, not missing data), and about 9% of Flex
-Fare trips have no distance recorded.
+## Common commands
 
-## Working on the project
+| To | Run |
+|---|---|
+| Start | `docker compose up -d` |
+| Stop (data is kept) | `docker compose down` |
+| Rebuild after a code change | `docker compose up -d --build` |
+| See what's running | `docker compose ps -a` |
+| See a container's output | `docker compose logs api` (or `web`, `loader`, `postgres`, `mongo`) |
+| Open a PostgreSQL shell | `docker compose exec postgres psql -U ycq -d ycq` |
+| Run the tests | `docker compose run --rm loader pytest tests` |
+| Delete all data and start over | `docker compose down -v`, then `docker compose up -d --build` |
 
-- `main` always runs. Work on a feature branch (`feature/saved-views`) and
-  merge through a pull request one other member reviews.
-- Before opening a pull request, run `docker compose up -d --build` (normal
-  mode) and the tests.
-- Schema changes go in a **new** numbered `sql/` file, never an edit to one
-  already in `main`.
-- Never commit `.env` or anything in `data/`.
+The data lives in Docker volumes, so it survives `docker compose down`. Only
+`down -v` deletes it, including users, plans and saved views.
 
 ## Troubleshooting
 
 | Problem | Fix |
 |---|---|
 | "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
-| "no configuration file provided" | You're in the wrong folder. `cd` into the one with `docker-compose.yml` |
-| http://localhost:8080 doesn't open | `loader` is still running or failed: `docker compose logs loader` |
-| Website shows "Bad Gateway" or "backend not reachable" | The `api` container crashed: `docker compose logs api` shows why. Fix it, then `docker compose up -d --build api` |
-| My change doesn't show | Normal mode needs `--build`. In dev mode try `docker compose restart api` (or `web`) |
-| Port 8000 or 8080 in use | Change `API_PORT` / `WEB_PORT` in `.env` |
-| Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` / `MONGO_PORT` in `.env` |
-| `R5: ... already imported` | That month is already in. To import it again, `etl/delete_month.py` it first; see [Change the import rules](#change-the-import-rules-or-summaries) |
-| Checksum mismatch | Download again. If it still differs, TLC changed the file: tell the team and don't import it |
-| `pip install` fails on polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
+| "no configuration file provided" | You're in the wrong folder: `cd` into the one with `docker-compose.yml` |
+| http://localhost:8080 doesn't open | The loader is still running or failed: `docker compose logs loader` |
+| "Bad Gateway" or "backend not reachable" | The `api` container stopped: `docker compose logs api` shows why. Fix it, then `docker compose up -d --build api` |
+| A change doesn't show | Rebuild with `docker compose up -d --build` |
+| Port 8000 or 8080 in use | Change `API_PORT` or `WEB_PORT` in `.env` |
+| Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` or `MONGO_PORT` in `.env` |
+| `R5: ... already imported` | That month is already loaded. To load it again, see [docs/development.md](docs/development.md#change-the-import-rules-or-summaries) |
+| Checksum mismatch | Download again. If it still differs, TLC changed the file: don't import it |
 
-MongoDB 8.0 doesn't allow `$jsonSchema` validators on time-series collections,
-so the loader checks every hourly document itself and removes the month if any
-fail. Saved views only live in MongoDB, so back them up with `mongodump`.
+## Project structure
+
+```
+api/        FastAPI backend: one router per feature, the planner, login and users
+web/        React and TypeScript website: one folder per page, shared components
+sql/        PostgreSQL schema, applied in number order
+etl/        loader scripts, plus benchmark, load_test, backtest_planner and evidence
+scripts/    data download with checksum check, default accounts
+tests/      pytest suite, using its own ycq_test databases
+docs/       development guide, data rules and database design notes
+data/       downloaded TLC files (not in git)
+```
+
+For working on the code (dev mode, adding a page, changing the schema, loading
+step by step): [docs/development.md](docs/development.md).
+
+## Team
+
+INF2003 team 24: Anna, Arif, Caleb, Kessler and Sean.
