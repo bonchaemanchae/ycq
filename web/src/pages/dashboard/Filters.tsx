@@ -26,7 +26,8 @@ export function describeFilters(f: Filters): string[] {
   return [`${day(f.dateFrom)} – ${day(f.dateTo)}`, days, hours, f.boroughs.length ? f.boroughs.join(", ") : "All boroughs"];
 }
 
-// The dashboard's toolbar: the filters in one line of words, the page's
+// The dashboard's toolbar: the filters in one line (any filter that is on
+// shows as a yellow chip with a remove button, the defaults as plain words), the page's
 // actions on the right, and the full filters in a panel that opens under it.
 // It stays at the top of the window while the page scrolls, so the filters
 // and the actions are always in view, whichever section is on screen.
@@ -60,9 +61,24 @@ export default function FilterBar({ filters: f, onChange, boroughs, bounds, acti
                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 5h18l-7 8v6l-4 2v-8z" /></svg>
           Filters
         </button>
-        <button className="filter-summary" onClick={openPanel} title="Change the filters">
-          {describeFilters(f).map((part, i) => <span key={i}>{part}</span>)}
-        </button>
+        <div className="filter-summary">
+          {describeFilters(f).map((part, i) => {
+            const clear = bounds ? [
+              f.dateFrom !== bounds.dateFrom || f.dateTo !== bounds.dateTo ? () => onChange({ ...f, ...bounds }) : null,
+              f.weekdays.length ? () => onChange({ ...f, weekdays: [] }) : null,
+              f.hourFrom !== null || f.hourTo !== null ? () => onChange({ ...f, hourFrom: null, hourTo: null }) : null,
+              f.boroughs.length ? () => onChange({ ...f, boroughs: [] }) : null,
+            ][i] : null;
+            return clear ? (
+              <span key={i} className="filter-chip">
+                <button className="filter-chip-label" onClick={openPanel} title="Change the filters">{part}</button>
+                <button className="filter-chip-x" onClick={clear} aria-label={`Remove the filter ${part}`} title="Remove this filter">✕</button>
+              </span>
+            ) : (
+              <button key={i} className="filter-part" onClick={openPanel} title="Change the filters">{part}</button>
+            );
+          })}
+        </div>
         {filtered && !open && <button className="link" onClick={reset}>Reset</button>}
         {actions && <div className="filter-actions">{actions}</div>}
       </div>

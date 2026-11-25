@@ -101,17 +101,23 @@
 .filter-line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 14px; }
 .filter-toggle { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; }
 .filter-toggle.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-.filter-summary {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; flex: 1 1 320px;
-  border: none; background: none; padding: 4px 2px; text-align: left; font-weight: 500; color: #3a3935;
-}
+.filter-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 4px; min-width: 0; flex: 1 1 320px; }
+/* a filter left at its default: plain words */
+.filter-part { border: none; background: none; padding: 4px 8px; font-weight: 500; color: #3a3935; }
 /* bold on hover, drawn with a text shadow so the line doesn't change width and push the buttons */
-.filter-summary:hover:not(:disabled) { background: none; color: var(--ink); text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
-/* a thin divider between the filters (the dates already contain commas) */
-.filter-summary span + span::before {
-  content: ""; display: inline-block; width: 1px; height: 0.95em; margin: 0 10px; vertical-align: -0.1em;
-  background: var(--line-strong);
+.filter-part:hover:not(:disabled) { background: none; color: var(--ink); text-shadow: 0 0 0.65px currentColor, 0 0 0.65px currentColor; }
+/* a filter that is on: a yellow chip, with a button that removes just that filter */
+.filter-chip {
+  display: inline-flex; align-items: center; border-radius: 999px; background: var(--yellow);
+  border: 1px solid var(--yellow-dark); box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
 }
+.filter-chip-label { border: none; background: none; padding: 4px 4px 4px 12px; font-weight: 700; color: var(--ink); }
+.filter-chip-label:hover:not(:disabled) { background: none; text-decoration: underline; }
+.filter-chip-x {
+  border: none; background: none; width: 26px; height: 26px; padding: 0; margin-right: 3px; border-radius: 50%;
+  font-size: 0.75rem; font-weight: 800; color: var(--ink);
+}
+.filter-chip-x:hover:not(:disabled) { background: rgba(28, 28, 26, 0.12); }
 .filter-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 .allocate-watch { font-weight: 500; margin-left: 4px; }
 .filter-panel {

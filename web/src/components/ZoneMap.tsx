@@ -1,6 +1,6 @@
 import type { Feature, FeatureCollection } from "geojson";
 import { geoJSON, type Layer, type PathOptions } from "leaflet";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GeoJSON, MapContainer, Pane, Polyline, TileLayer, Tooltip, useMap } from "react-leaflet";
 
 // When the map's box changes size (a wider table beside it, the window
@@ -42,6 +42,7 @@ const HOME_ZOOM = 11;
 function HomeView({ zones, names, n }: { zones: FeatureCollection | null; names?: string[]; n: number }) {
   const map = useMap();
   const key = names?.join("|") ?? "";
+  const shown = useRef("");   // the boroughs last flown to, so clearing them flies back out
   useEffect(() => {
     const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const motion = { duration: still ? 0 : 0.6, animate: !still };
@@ -50,8 +51,10 @@ function HomeView({ zones, names, n }: { zones: FeatureCollection | null; names?
     if (area.length) {
       map.flyToBounds(geoJSON({ type: "FeatureCollection", features: area } as FeatureCollection).getBounds(),
                       { padding: [24, 24], maxZoom: 13, ...motion });
-    } else if (n || key) {
+      shown.current = key;
+    } else if (n || shown.current) {
       map.flyTo(HOME, HOME_ZOOM, motion);
+      shown.current = "";
     }
   }, [map, zones, key, n]);   // eslint-disable-line react-hooks/exhaustive-deps
   return null;
@@ -89,6 +92,8 @@ type Props = {
   resetView?: number;
   // the boroughs the map opens on and goes back to (default: all five)
   home?: string[];
+  // when given, zones outside these boroughs are faded, so the filtered area stands out
+  focus?: string[];
   height?: number;
 };
 
@@ -96,7 +101,7 @@ const RGB = { scale: "230, 160, 0", short: "194, 56, 43", surplus: "42, 100, 184
 
 // NYC taxi zone map shared by every page. Colour zones by passing values.
 export default function ZoneMap({ values = {}, label = "value", onZoneClick, lines, diverging = false,
-                                  selectedId = null, markedIds = [], zoomTo = null, resetView = 0, home, height }: Props) {
+                                  selectedId = null, markedIds = [], zoomTo = null, resetView = 0, home, focus, height }: Props) {
   const [zones, setZones] = useState<FeatureCollection | null>(null);
   useEffect(() => {
     api<FeatureCollection>("/zones/geojson").then(setZones).catch(console.error);
@@ -114,6 +119,9 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick, lin
     const v = values[id];
     const selected = id === selectedId;
     const marked = markedIds.includes(id);
+    if (focus?.length && !focus.includes(f?.properties?.borough)) {
+      return { weight: 0.3, color: "#bbb", fillColor: "#e8e6e0", fillOpacity: 0.35 };
+    }
     return {
       weight: selected ? 3 : marked ? 2.5 : 0.5,
       color: selected || marked ? "#1c1c1a" : "#555",
@@ -145,7 +153,7 @@ export default function ZoneMap({ values = {}, label = "value", onZoneClick, lin
       />
       {zones && (
         // key forces a redraw when the values or the selected zone change
-        <GeoJSON key={`${diverging}:${selectedId}:${markedIds.join(",")}:${JSON.stringify(values)}`} data={zones} style={style}
+        <GeoJSON key={`${diverging}:${selectedId}:${markedIds.join(",")}:${focus?.join(",") ?? ""}:${JSON.stringify(values)}`} data={zones} style={style}
                  onEachFeature={onEach} />
       )}
       {lines && (

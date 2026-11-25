@@ -289,10 +289,6 @@ export default function Dashboard() {
         <div className="card"><p className="muted">No data is loaded yet. Run the loader first.</p></div>
       )}
 
-      {overview && summary.data && filters && (
-        <div className={summary.loading ? "dash-stale" : ""}><TotalsRow totals={summary.data.totals} filters={filters!} /></div>
-      )}
-
       {filters && (
         <FilterBar filters={filters} onChange={setFilters} bounds={bounds}
                    boroughs={(boroughs.data ?? []).map((b) => b.name)}
@@ -315,6 +311,10 @@ export default function Dashboard() {
       )}
       {summary.error && <div className="alert error"><span>{summary.error}</span></div>}
 
+      {overview && summary.data && filters && (
+        <div className={summary.loading ? "dash-stale" : ""}><TotalsRow totals={summary.data.totals} filters={filters!} /></div>
+      )}
+
       {overview && (
         <>
 
@@ -331,6 +331,8 @@ export default function Dashboard() {
                 <MapLegend short={short} flowOpen={!!flow} compared={compareIds.length > 0} />
               </div>
               <ZoneMap values={values} label={short ? "pickups minus drop-offs" : "pickups"}
+                       home={filters?.boroughs.length ? filters.boroughs : undefined}
+                       focus={filters?.boroughs.length ? filters.boroughs : undefined}
                        onZoneClick={openFlow} diverging={short} selectedId={flow?.originZoneId}
                        markedIds={compareIds} lines={lines} />
               <Source answer={summary.data} />
