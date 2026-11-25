@@ -52,7 +52,7 @@ const NAV: NavGroup[] = [
     icon: icon("M4 20h16M6 16l4-5 3 3 5-7"),
     items: [
       { to: "/evaluation/pipeline", label: "Data pipeline" },
-      { to: "/evaluation/benchmarks", label: "Benchmarks" },
+      { to: "/evaluation/performance", label: "Performance" },
     ],
   },
 ];

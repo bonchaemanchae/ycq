@@ -11,6 +11,10 @@ Served at /admin/... here and at /api/admin/... from the website.
   DELETE /admin/orphaned-views   delete them
   GET /admin/plan-seals       every saved plan version's hash chain, checked now
   GET /admin/benchmarks       the latest benchmark run (etl/benchmark.py)
+  GET /admin/load-tests       the latest load test run (etl/load_test.py)
+  GET /admin/stores           what each database holds and which page reads
+                              it: PostgreSQL's main tables and monthly trip
+                              partitions, MongoDB's collections
 
 Only admins get here: api/main.py adds every route in this file with the
 admin_only check (tests/test_auth.py checks that).
@@ -18,12 +22,15 @@ admin_only check (tests/test_auth.py checks that).
 The query functions take a connection, so tests can call them directly
 without starting the web server.
 """
+import json
 import math
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg import sql
 from psycopg.rows import dict_row
 
-from .. import planner, saved_views
+from .. import dashboard, flows, planner, saved_views
 from ..db import get_pg, mongo
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -116,6 +123,35 @@ def list_reconciliation(conn, limit: int = 50) -> list[dict]:
             (limit,)).fetchall()
 
 
+def plan_summary(store: str, plan: str | None) -> str | None:
+    """How a database ran a benchmark query, in a few words, from its saved
+    query plan: the way it found the data and how much it read. PostgreSQL
+    plans are EXPLAIN (ANALYZE, BUFFERS) text, read in 8 kB pages; MongoDB
+    plans are explain("executionStats") JSON, read in documents, or in
+    compressed buckets for a time-series collection."""
+    if not plan:
+        return None
+    if store == "postgres":
+        nodes = plan
+        how = ("full table scan" if "Seq Scan" in nodes else "bitmap index scan" if "Bitmap" in nodes
+               else "index-only scan" if "Index Only Scan" in nodes else "index scan" if "Index Scan" in nodes else "scan")
+        if "Parallel" in nodes:
+            how = f"parallel {how}"
+        first = re.search(r"Buffers: shared(?: hit=(\d+))?(?: read=(\d+))?", plan)
+        pages = sum(int(x) for x in first.groups() if x) if first else None
+        return f"{how}, {pages:,} {'page' if pages == 1 else 'pages'}" if pages is not None else how
+    try:
+        text = json.dumps(json.loads(plan))
+    except ValueError:
+        return None
+    examined = [int(x) for x in re.findall(r'"totalDocsExamined": (\d+)', text)]
+    read = max(examined) if examined else None
+    if "UNPACK_TS_BUCKET" in text or store == "mongo_timeseries":
+        return f"{read:,} {'bucket' if read == 1 else 'buckets'}" if read is not None else "buckets"
+    how = "full scan" if "COLLSCAN" in text else "index scan"
+    return f"{how}, {read:,} {'document' if read == 1 else 'documents'}" if read is not None else how
+
+
 def latest_benchmark(conn) -> dict:
     """Every result of the most recent benchmark run (one row per store and
     query), with when it ran. Empty if the benchmark hasn't been run.
@@ -134,7 +170,84 @@ def latest_benchmark(conn) -> dict:
                WHERE run_at = (SELECT max(run_at) FROM benchmark_run)
                ORDER BY query_name, store""").fetchall()
     run_at = rows[0]["run_at"] if rows else None
+    return {"run_at": run_at, "results": [{**{k: v for k, v in r.items() if k != "run_at"},
+                                           "plan_summary": plan_summary(r["store"], r["plan_output"])} for r in rows]}
+
+
+def latest_load_test(conn) -> dict:
+    """Every result of the most recent load test: one row per question and
+    number of simultaneous users. Empty if it hasn't been run."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """SELECT question, users, seconds, requests, failed, requests_per_sec,
+                      median_ms, p95_ms, run_at
+               FROM load_test_run
+               WHERE run_at = (SELECT max(run_at) FROM load_test_run)
+               ORDER BY question, users""").fetchall()
+    run_at = rows[0]["run_at"] if rows else None
     return {"run_at": run_at, "results": [{k: v for k, v in r.items() if k != "run_at"} for r in rows]}
+
+
+# The tables worth showing, in the order the data flows through them: the
+# name, what kind of relation, what one row is, and what in the app reads it.
+PG_TABLES = [
+    ("import_batch", "table", "one imported file, with its checksum", ["Data health"]),
+    ("trip", "partitioned table", "one taxi trip", ["every summary is built from it"]),
+    ("rejected_trip", "table", "a row that failed a rule, with the rule", ["Data pipeline"]),
+    ("trip_warning", "table", "a suspicious value on a kept trip", ["Data pipeline"]),
+    ("taxi_zone", "table", "one TLC zone and its shape (PostGIS)", ["every map"]),
+    ("zone_hour_observation", "table", "one zone in one hour", ["Allocation Planner", "copied to MongoDB"]),
+    ("od_summary", "materialized view", "trips between two zones", ["copied to MongoDB", "Performance"]),
+    ("allocation_plan_version", "table", "one saved plan version, sealed by a hash chain", ["Saved plans"]),
+]
+
+# The collections, in the same form. Which page reads which is chosen in
+# api/dashboard.py (source), api/flows.py and api/saved_views.py. The API's
+# MongoDB login may only read documents (etl/load_mongo.py), not list
+# collections, so they are named here.
+MONGO_COLLECTIONS = [
+    (dashboard.DAILY, "pre-summed", "one zone on one day", ["Zone maps"]),
+    (dashboard.COLLECTION, "time-series", "one zone in one hour",
+     ["Zone maps with hours filtered", "comparing zones", "Planner check"]),
+    (dashboard.BOROUGH_HOURLY, "pre-summed", "one borough in one hour", ["Daily trends", "Allocation Planner"]),
+    (flows.COLLECTION, "snapshot", "one zone's top 10 destinations for a month, day type and time band", ["Flow Explorer"]),
+    (saved_views.COLLECTION, "app data", "one saved view", ["Views menu"]),
+]
+
+
+def stores(conn, db) -> dict:
+    """What each database holds and what reads it, for the Data pipeline
+    page. Large tables use PostgreSQL's row estimate (pg_class.reltuples,
+    kept up to date by ANALYZE), instant even for 11 million trips; smaller
+    ones, which ANALYZE may not have reached yet, are counted exactly."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        sizes = {r["name"]: r for r in cur.execute(
+            """SELECT c.relname AS name, greatest(c.reltuples, 0)::bigint AS rows,
+                      pg_total_relation_size(c.oid) AS bytes
+               FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               WHERE n.nspname = 'public' AND c.relname = ANY(%s)""",
+            ([name for name, *_ in PG_TABLES],)).fetchall()}
+        partitions = cur.execute(
+            """SELECT c.relname AS name, greatest(c.reltuples, 0)::bigint AS rows,
+                      pg_total_relation_size(c.oid) AS bytes
+               FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+               WHERE i.inhparent = 'trip'::regclass
+               ORDER BY c.relname""").fetchall()
+        for name, found in sizes.items():
+            if found["rows"] < 1_000_000:
+                found["rows"] = cur.execute(sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(name))).fetchone()["n"]
+    tables = []
+    for name, kind, one, used_by in PG_TABLES:
+        found = sizes.get(name)
+        if name == "trip":   # the parent holds no rows itself: its partitions do
+            found = {"rows": sum(p["rows"] for p in partitions), "bytes": sum(p["bytes"] for p in partitions)}
+        if found:
+            tables.append({"name": name, "kind": kind, "one": one, "used_by": used_by,
+                           "rows": found["rows"], "bytes": found["bytes"]})
+
+    collections = [{"name": name, "kind": kind, "one": one, "used_by": used_by, "documents": db[name].count_documents({})}
+                   for name, kind, one, used_by in MONGO_COLLECTIONS]
+    return {"postgres": {"tables": tables, "partitions": partitions}, "mongo": collections}
 
 
 # --- routes --------------------------------------------------------------
@@ -188,3 +301,17 @@ def plan_seals(conn=Depends(get_pg)):
 def benchmarks(conn=Depends(get_pg)):
     """The latest benchmark run: timings, sizes and query plans per store."""
     return latest_benchmark(conn)
+
+
+@router.get("/load-tests")
+def load_tests(conn=Depends(get_pg)):
+    """The latest load test: requests a second and response times per
+    question at each number of simultaneous users."""
+    return latest_load_test(conn)
+
+
+@router.get("/stores")
+def stores_route(conn=Depends(get_pg)):
+    """PostgreSQL's main tables and monthly trip partitions, and MongoDB's
+    collections, each with what one row is, what reads it and how many there are."""
+    return stores(conn, mongo())

@@ -74,6 +74,34 @@ All `docker compose` commands must be run from the folder that contains
 The data is kept in Docker volumes (`pgdata`, `mongodata`), so it survives
 `docker compose down` and restarts. Only `docker compose down -v` deletes it.
 
+### Which page reads which store
+
+PostgreSQL is the source of truth; MongoDB holds summaries shaped for the
+pages that read them, rebuilt from PostgreSQL by the loader. Database
+evaluation → Data pipeline (steps 3 and 4) shows the same lists live, with
+row and document counts (`GET /admin/stores`).
+
+| PostgreSQL | One row is | Used by |
+|---|---|---|
+| `trip` (partitioned by month) | one taxi trip | every summary is built from it |
+| `rejected_trip`, `trip_warning` | a row that failed a rule / a suspicious value on a kept trip | Data pipeline |
+| `taxi_zone` | one TLC zone and its shape (PostGIS) | every map |
+| `zone_hour_observation` | one zone in one hour | Allocation Planner ranking (`api/planner.py`); copied to MongoDB |
+| `od_summary` (materialized view) | trips between two zones | copied to MongoDB for the Flow Explorer; Performance |
+| `allocation_plan_version` and its tables | one saved plan version | Saved plans |
+| `import_batch` | one imported file | Data health |
+
+| MongoDB | One document is | Used by |
+|---|---|---|
+| `zone_activity_daily` | one zone on one day | Zone maps |
+| `zone_activity_timeseries` (time-series) | one zone in one hour | Zone maps with hours filtered, comparing zones, the planner's MongoDB check |
+| `borough_activity_hourly` | one borough in one hour | Daily trends, the planner's weekday and hour data |
+| `origin_destination_snapshots` | one zone's top 10 destinations for a month, day type and time band | Flow Explorer |
+| `saved_analysis_views` | one saved view | Views menu |
+
+The dashboard picks the smallest collection that answers each question
+(`source` in `api/dashboard.py`).
+
 ## Everyday commands
 
 | To | Run |
@@ -144,7 +172,7 @@ scoring details and PostgreSQL vs MongoDB check. Analysts see only the answers.
 | Allocation Planner (Anna) | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx` | `/planner/build`, `/planner/saved` |
 | Saved Views (Caleb) | `api/routers/saved_views.py` | the **Views** menu beside the Dashboard filters | — |
 | Users and Security (Arif) | `api/auth.py`, `api/users.py`, `api/mailer.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `web/src/pages/Setup.tsx`, `/admin/users` | — |
-| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/users`, `/admin/health`, `/evaluation/pipeline`, `/evaluation/benchmarks` |
+| Administration (Sean) | `api/routers/admin.py` | `web/src/pages/Admin.tsx` | `/admin/users`, `/admin/health`, `/evaluation/pipeline`, `/evaluation/performance` |
 
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
 in `flows.py` is served at http://localhost:8000/flows/busiest. Get
@@ -541,7 +569,7 @@ python etl/reconcile.py        --month 2026-01
 
 Compares PostgreSQL and MongoDB on the app's own questions. Run it after all
 months are loaded; it takes a few minutes and the results appear under
-Database evaluation → Benchmarks.
+Database evaluation → Performance.
 
 ```bash
 docker compose build loader                                   # picks up the script
@@ -581,7 +609,8 @@ The load test sends real requests to the running API from 1, 5, 10, 20, 50 and
 failures. It logs in as `analyst1@ycq.local`, so that account needs its password
 in `.env`, and takes about 10 minutes. The results are saved in the
 `load_test_run` table (`sql/018`), one row per question and number of users
-(`--no-save` skips this):
+(`--no-save` skips this), and the latest run appears under Database
+evaluation → Performance, Throughput:
 
 ```bash
 docker compose run --rm loader python etl/load_test.py

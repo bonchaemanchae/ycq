@@ -108,6 +108,7 @@ export type BenchmarkResult = {
   index_bytes: number | null;
   load_ms: number | null;
   plan_output: string | null;
+  plan_summary: string | null;      // how the store ran it and how much it read, e.g. "789 buckets"
   data: "hourly" | "destinations" | "dashboard";   // Q1-Q4 hourly summaries, Q5 destination lists, Q6-Q7 the dashboard's stores
 };
 
@@ -123,3 +124,22 @@ export const STORE_LABEL: Record<BenchmarkResult["store"], string> = {
 export const ms = (v: number) => (v < 10 ? `${v.toFixed(2)} ms` : `${v.toFixed(1)} ms`);
 
 export const mb = (bytes: number | null) => (bytes == null ? "–" : `${(bytes / 1_048_576).toFixed(1)} MB`);
+
+// GET /admin/load-tests: the latest load test (etl/load_test.py), one row per
+// question and number of simultaneous users. Numbers may arrive as text.
+export type LoadTestResult = {
+  question: string; users: number; seconds: number | string; requests: number; failed: number;
+  requests_per_sec: number | string; median_ms: number | string | null; p95_ms: number | string | null;
+};
+export type LoadTestRun = { run_at: string | null; results: LoadTestResult[] };
+
+// GET /admin/stores: what each database holds.
+export type StoreTable = { name: string; kind: string; one: string; used_by: string[]; rows: number; bytes: number };
+export type Stores = {
+  postgres: { tables: StoreTable[]; partitions: { name: string; rows: number; bytes: number }[] };
+  mongo: { name: string; kind: string; one: string; used_by: string[]; documents: number }[];
+};
+
+// 10982814 -> "11.0M", 567817 -> "568K"
+export const compact = (v: number) =>
+  v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 10_000 ? `${Math.round(v / 1000)}K` : v.toLocaleString();

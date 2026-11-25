@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, del } from "../../api";
-import Proves from "./Proves";
 import { n, pct, when, type ImportBatch, type ReconRun } from "./types";
 
 type Orphans = { views: number; orphaned: number; owners: number[] };
@@ -63,7 +62,6 @@ export default function DataHealth({ batches, latest }: { batches: ImportBatch[]
     {
       ok: loaded === batches.length, title: "Imports complete",
       value: `${loaded} of ${batches.length} months`,
-      proves: "repeatable loads with checksums",
       help: "Each monthly file loaded in full and matched its SHA-256 checksum pinned in the repository. Loading a month again replaces it instead of adding duplicates.",
       fix: notLoaded.length > 0 && {
         text: `Delete ${notLoaded.join(", ")} and load it again, one month at a time, then run docker compose up -d:`,
@@ -73,7 +71,6 @@ export default function DataHealth({ batches, latest }: { batches: ImportBatch[]
     {
       ok: passed === batches.length, title: "Both databases agree",
       value: `${passed} of ${batches.length} months`,
-      proves: "consistency across two databases",
       help: "After each load, MongoDB's hourly summaries, pickups and drop-offs are compared with PostgreSQL zone by zone and hour by hour. A month passes only if every number matches.",
       fix: notMatching.length > 0 && {
         text: `PostgreSQL is the source of truth, so rebuild MongoDB for ${notMatching.join(", ")}, one month at a time:`,
@@ -83,14 +80,12 @@ export default function DataHealth({ batches, latest }: { batches: ImportBatch[]
     {
       ok: viewsOk, title: "Saved views have owners",
       value: orphans ? (orphans.views === 0 ? "No views yet" : orphans.orphaned === 0 ? `All ${n(orphans.views)}` : `${n(orphans.orphaned)} orphaned`) : "…",
-      proves: "integrity without a foreign key",
       help: "Saved views live in MongoDB and users in PostgreSQL, so no foreign key can link them. This check does it instead, live, each time the page opens.",
       fix: viewsOk === false && { text: "Nobody can open these views. Delete them with the button below.", commands: [] as string[] },
     },
     {
       ok: sealsOk, title: "Saved plans untouched",
       value: seals ? (sealsOk ? `All ${n(seals.versions)} versions` : `${n(seals.problems.length)} altered`) : "…",
-      proves: "tamper evidence with a hash chain",
       help: "Each saved plan version is sealed with a SHA-256 hash of its contents and of the seal before it. The hashes are recomputed each time the page opens, so an edited version shows up here.",
       fix: sealsOk === false && {
         text: "A saved version was edited directly in the database. Treat it as a security incident and check who had database access; the planner marks the version as not verified.",
@@ -116,7 +111,6 @@ export default function DataHealth({ batches, latest }: { batches: ImportBatch[]
                 {t.fix.commands.map((c) => <code key={c}>{c}</code>)}
               </div>
             )}
-            <Proves>{t.proves}</Proves>
           </div>
         ))}
       </div>

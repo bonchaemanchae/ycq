@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { DatabaseStatus } from "../details";
-import Benchmarks from "./admin/Benchmarks";
 import DataHealth from "./admin/DataHealth";
+import Performance from "./admin/Performance";
 import Pipeline from "./admin/Pipeline";
 import Users from "./admin/Users";
 import { latestRuns, type BenchmarkRun, type ImportBatch, type ReconRun } from "./admin/types";
@@ -14,7 +14,7 @@ import "./admin/admin.css";
 // the evidence behind the database design. Backend routes are in
 // api/routers/admin.py.
 type Area = "admin" | "evaluation";
-type SectionId = "users" | "health" | "pipeline" | "benchmarks";
+type SectionId = "users" | "health" | "pipeline" | "performance";
 
 const SECTIONS: Record<SectionId, { area: Area; title: string; question?: string }> = {
   users: {
@@ -25,17 +25,15 @@ const SECTIONS: Record<SectionId, { area: Area; title: string; question?: string
   },
   pipeline: {
     area: "evaluation", title: "Data pipeline",
-    question: "How each TLC row is checked, stored in PostgreSQL and summarised into MongoDB.",
+    question: "How each TLC row is checked, stored in PostgreSQL and summarised into MongoDB, step by step",
   },
-  benchmarks: {
-    area: "evaluation", title: "Benchmarks",
-    question: "The measurements behind the database design, on the same data in every store.",
-  },
+  performance: { area: "evaluation", title: "Performance" },
 };
 const FIRST: Record<Area, SectionId> = { admin: "users", evaluation: "pipeline" };
 
 export default function Admin({ area }: { area: Area }) {
-  const { section: param } = useParams();
+  const { section: raw } = useParams();
+  const param = raw === "benchmarks" ? "performance" : raw;   // the page's old address
   const navigate = useNavigate();
   const section: SectionId =
     param && param in SECTIONS && SECTIONS[param as SectionId].area === area ? (param as SectionId) : FIRST[area];
@@ -82,7 +80,7 @@ export default function Admin({ area }: { area: Area }) {
       {head}
       {section === "health" && <DataHealth batches={batches} latest={latest} />}
       {section === "pipeline" && <Pipeline batches={batches} latest={latest} />}
-      {section === "benchmarks" && <Benchmarks run={bench} />}
+      {section === "performance" && <Performance run={bench} />}
     </section>
   );
 }
