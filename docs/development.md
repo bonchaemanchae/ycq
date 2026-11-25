@@ -48,6 +48,30 @@ COMPOSE_FILE=docker-compose.yml;docker-compose.dev.yml
 After a `git pull`, run `docker compose up -d --build` if you're unsure what
 changed.
 
+## Everyday commands
+
+| To | Run |
+|---|---|
+| Rebuild after a code change | `docker compose up -d --build` |
+| See what's running | `docker compose ps -a` |
+| See a container's output or errors | `docker compose logs api` (or `web`, `loader`, `postgres`, `mongo`) |
+| Restart one container | `docker compose restart api` |
+| Open a PostgreSQL shell | `docker compose exec postgres psql -U ycq -d ycq` |
+| Run the tests | `docker compose run --rm loader pytest tests` |
+
+The data lives in Docker volumes (`pgdata`, `mongodata`), so it survives
+`docker compose down` and restarts. Only `docker compose down -v` deletes it.
+
+## Troubleshooting while developing
+
+| Problem | Fix |
+|---|---|
+| "Bad Gateway" or "backend not reachable" | The `api` container stopped: `docker compose logs api` shows why. Fix it, then `docker compose up -d --build api` |
+| A change doesn't show | Normal mode needs `--build`. In dev mode try `docker compose restart api` (or `web`) |
+| `R5: ... already imported` | That month is already loaded. To load it again, see [Change the import rules or summaries](#change-the-import-rules-or-summaries) |
+| Checksum mismatch | Download again. If it still differs, TLC changed the file: tell the team and don't import it |
+| `pip install` fails on Polars or psycopg | Wrong Python. Recreate `.venv` with `py -3.12` |
+
 ## Where each feature lives
 
 The website follows a fleet manager's path: **look** at demand, **understand**
@@ -226,8 +250,6 @@ can't install Polars or psycopg. `.env` already points at `localhost`, which is
 right for this setup. `pytest` from the repo root runs the tests. One
 `requirements.txt` covers the API, the ETL and the tests; the `api` and
 `loader` images both install it.
-
-If `pip install` fails on Polars or psycopg, recreate `.venv` with `py -3.12`.
 
 ## Team workflow
 

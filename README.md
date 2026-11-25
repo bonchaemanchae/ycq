@@ -131,6 +131,23 @@ at http://localhost:8025; nothing reaches a real inbox.
 Run every `docker compose` command from the folder that holds
 `docker-compose.yml`.
 
+### Stopping and if something goes wrong
+
+| To | Run |
+|---|---|
+| Stop the app (data is kept) | `docker compose down` |
+| Start it again | `docker compose up -d` |
+| Delete all data and start over | `docker compose down -v`, then `docker compose up -d --build` |
+
+`down -v` also deletes users, saved plans and saved views.
+
+| Problem | Fix |
+|---|---|
+| "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
+| "no configuration file provided" | You're in the wrong folder: `cd` into the one with `docker-compose.yml` |
+| http://localhost:8080 doesn't open | The data is still loading, or the load failed: `docker compose logs loader` |
+| A port is already in use | Change `WEB_PORT`, `API_PORT`, `POSTGRES_PORT` or `MONGO_PORT` in `.env` |
+
 ## Configuration
 
 All settings live in `.env`, which is never committed.
@@ -233,36 +250,6 @@ Options and details: [docs/database.md](docs/database.md#evaluation-tools).
 | Both databases agree | yes | yes | yes |
 
 The full rules and per-rule counts: [docs/data.md](docs/data.md).
-
-## Common commands
-
-| To | Run |
-|---|---|
-| Start | `docker compose up -d` |
-| Stop (data is kept) | `docker compose down` |
-| Rebuild after a code change | `docker compose up -d --build` |
-| See what's running | `docker compose ps -a` |
-| See a container's output | `docker compose logs api` (or `web`, `loader`, `postgres`, `mongo`) |
-| Open a PostgreSQL shell | `docker compose exec postgres psql -U ycq -d ycq` |
-| Run the tests | `docker compose run --rm loader pytest tests` |
-| Delete all data and start over | `docker compose down -v`, then `docker compose up -d --build` |
-
-The data lives in Docker volumes, so it survives `docker compose down`. Only
-`down -v` deletes it, including users, plans and saved views.
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| "cannot connect to the Docker daemon" | Open Docker Desktop and wait for **Engine running** |
-| "no configuration file provided" | You're in the wrong folder: `cd` into the one with `docker-compose.yml` |
-| http://localhost:8080 doesn't open | The loader is still running or failed: `docker compose logs loader` |
-| "Bad Gateway" or "backend not reachable" | The `api` container stopped: `docker compose logs api` shows why. Fix it, then `docker compose up -d --build api` |
-| A change doesn't show | Rebuild with `docker compose up -d --build` |
-| Port 8000 or 8080 in use | Change `API_PORT` or `WEB_PORT` in `.env` |
-| Port 5432 or 27017 in use | Stop the other database, or change `POSTGRES_PORT` or `MONGO_PORT` in `.env` |
-| `R5: ... already imported` | That month is already loaded. To load it again, see [docs/development.md](docs/development.md#change-the-import-rules-or-summaries) |
-| Checksum mismatch | Download again. If it still differs, TLC changed the file: don't import it |
 
 ## Project structure
 
