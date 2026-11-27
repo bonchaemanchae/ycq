@@ -103,9 +103,6 @@ shaped for it, and the Flow Explorer reads a single document.
 | User management, login | PostgreSQL |
 | Data health | Both |
 
-Database evaluation → Data pipeline (steps 3 and 4) shows the same lists live,
-with row and document counts (`GET /admin/stores`).
-
 ## Analytical Dashboard
 
 One page with two sections, Zone maps and then Daily trends below it (the
@@ -350,7 +347,7 @@ Then the application:
   the account is still active are checked on every request, so changes apply
   at once.
 - **Roles:** fleet managers (role `analyst`) use every page except
-  Administration and Database evaluation; admins use all of them.
+  Administration; admins use all of them.
 - **Disabling a user** stops their login and every session they hold at once,
   and revokes any open invitation. Their saved plans (and the hash chain over
   them) and saved views are kept, and an admin can enable the account again.
@@ -374,6 +371,18 @@ Then the application:
   `mongodump`.
 
 ## Evaluation tools
+
+The runs behind the presentation are saved in `etl/results/` and printed by:
+
+```bash
+docker compose run --rm loader python etl/results.py           # ours, then your latest run if any
+docker compose run --rm loader python etl/results.py --full    # every number of users in the load test
+docker compose run --rm loader python etl/results.py --export  # save this database's latest runs as ours
+```
+
+A fresh install loads the trip data but none of our runs, which is why they
+are kept as files. `--export` is for the team, after a new run worth
+presenting.
 
 All four only read data. Run them after every month is loaded, after
 `docker compose build loader` if the scripts changed.
@@ -403,8 +412,8 @@ indexes (`bench_zone_hour` in PostgreSQL, `bench_zone_hour_collection` and
 
 It records a cold run, the median and 95th percentile of the timed runs, data
 and index size, load time and each query plan, and saves them to
-`benchmark_run` only if every store gave the same answers. The latest results
-appear under Database evaluation → Performance. `--explain-summary` prints
+`benchmark_run` only if every store gave the same answers; `etl/results.py`
+prints the latest run. `--explain-summary` prints
 `EXPLAIN ANALYZE` of one month's summary build and changes nothing.
 
 Results (15 Nov 2026, medians of 50 runs):
@@ -439,9 +448,26 @@ hourly map, the weekday chart, the Flow Explorer and the planner preview. Each
 user logs in as `analyst1@ycq.local` and waits for each answer before sending
 the next. It reports requests a second, median and 95th percentile response
 times and failures, saves them in `load_test_run` (`--no-save` skips this),
-and takes about 10 minutes. The Performance page shows the latest full run, so
+and takes about 10 minutes. `etl/results.py` shows the latest full run, so
 run every feature together. The API and the test share one machine, so
 compare the ratios rather than the absolute numbers.
+
+Results (26 Nov 2026): 53,323 requests, none failed. Most features stop
+getting faster at about 5 users at once; after that, extra users wait longer
+instead of getting errors.
+
+| Feature | Database | Most requests a second | Stops growing at | Response time, 1 user | 80 users |
+|---|---|---:|---:|---:|---:|
+| Flow Explorer | MongoDB | 390 | 5 users | 5.0 ms | 224 ms |
+| Planner preview | PostgreSQL | 84 | 5 users | 24.6 ms | 934 ms |
+| Map, daily summary | MongoDB | 73 | 5 users | 35.9 ms | 1.1 s |
+| Weekday chart | MongoDB | 65 | 5 users | 23.0 ms | 1.6 s |
+| Map, hourly data | MongoDB | 33 | 10 users | 82.3 ms | 2.5 s |
+
+"Stops growing at" is the first number of users reaching 90% of the feature's
+peak. The planner preview's query does more work since 21 Nov (it ranks
+reliable zones separately and splits taxis by demand), which is most likely
+why it fell from 115 a second in the 15 Nov run.
 
 ### Planner backtest
 

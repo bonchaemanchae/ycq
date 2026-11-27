@@ -1,0 +1,305 @@
+{
+ "run_at": "2026-11-26T08:34:29.056326+00:00",
+ "results": [
+  {
+   "question": "Flow Explorer",
+   "users": 1,
+   "seconds": 16.0,
+   "requests": 3043,
+   "failed": 0,
+   "requests_per_sec": 190.18,
+   "median_ms": 5.017,
+   "p95_ms": 7.337
+  },
+  {
+   "question": "Flow Explorer",
+   "users": 5,
+   "seconds": 16.0,
+   "requests": 5747,
+   "failed": 0,
+   "requests_per_sec": 359.41,
+   "median_ms": 13.383,
+   "p95_ms": 20.21
+  },
+  {
+   "question": "Flow Explorer",
+   "users": 10,
+   "seconds": 16.0,
+   "requests": 6076,
+   "failed": 0,
+   "requests_per_sec": 380.39,
+   "median_ms": 25.713,
+   "p95_ms": 36.259
+  },
+  {
+   "question": "Flow Explorer",
+   "users": 20,
+   "seconds": 15.9,
+   "requests": 5596,
+   "failed": 0,
+   "requests_per_sec": 351.29,
+   "median_ms": 55.226,
+   "p95_ms": 82.463
+  },
+  {
+   "question": "Flow Explorer",
+   "users": 50,
+   "seconds": 15.9,
+   "requests": 6188,
+   "failed": 0,
+   "requests_per_sec": 389.57,
+   "median_ms": 125.662,
+   "p95_ms": 166.765
+  },
+  {
+   "question": "Flow Explorer",
+   "users": 80,
+   "seconds": 16.0,
+   "requests": 5543,
+   "failed": 0,
+   "requests_per_sec": 347.47,
+   "median_ms": 223.777,
+   "p95_ms": 289.261
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 1,
+   "seconds": 16.0,
+   "requests": 424,
+   "failed": 0,
+   "requests_per_sec": 26.49,
+   "median_ms": 35.857,
+   "p95_ms": 50.711
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 5,
+   "seconds": 16.0,
+   "requests": 1168,
+   "failed": 0,
+   "requests_per_sec": 72.84,
+   "median_ms": 67.903,
+   "p95_ms": 88.978
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 10,
+   "seconds": 16.0,
+   "requests": 1158,
+   "failed": 0,
+   "requests_per_sec": 72.16,
+   "median_ms": 133.069,
+   "p95_ms": 205.378
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 20,
+   "seconds": 16.1,
+   "requests": 946,
+   "failed": 0,
+   "requests_per_sec": 58.59,
+   "median_ms": 343.383,
+   "p95_ms": 481.521
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 50,
+   "seconds": 16.5,
+   "requests": 1111,
+   "failed": 0,
+   "requests_per_sec": 67.33,
+   "median_ms": 713.019,
+   "p95_ms": 1076.316
+  },
+  {
+   "question": "Map, daily summary",
+   "users": 80,
+   "seconds": 16.7,
+   "requests": 1216,
+   "failed": 0,
+   "requests_per_sec": 72.78,
+   "median_ms": 1089.734,
+   "p95_ms": 1223.106
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 1,
+   "seconds": 16.0,
+   "requests": 185,
+   "failed": 0,
+   "requests_per_sec": 11.56,
+   "median_ms": 82.294,
+   "p95_ms": 109.292
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 5,
+   "seconds": 16.1,
+   "requests": 471,
+   "failed": 0,
+   "requests_per_sec": 29.28,
+   "median_ms": 169.354,
+   "p95_ms": 202.316
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 10,
+   "seconds": 16.1,
+   "requests": 528,
+   "failed": 0,
+   "requests_per_sec": 32.88,
+   "median_ms": 300.404,
+   "p95_ms": 367.968
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 20,
+   "seconds": 16.3,
+   "requests": 523,
+   "failed": 0,
+   "requests_per_sec": 32.1,
+   "median_ms": 620.451,
+   "p95_ms": 779.812
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 50,
+   "seconds": 16.9,
+   "requests": 554,
+   "failed": 0,
+   "requests_per_sec": 32.79,
+   "median_ms": 1501.046,
+   "p95_ms": 1749.543
+  },
+  {
+   "question": "Map, hourly data",
+   "users": 80,
+   "seconds": 18.1,
+   "requests": 578,
+   "failed": 0,
+   "requests_per_sec": 31.92,
+   "median_ms": 2481.498,
+   "p95_ms": 2859.415
+  },
+  {
+   "question": "Planner preview",
+   "users": 1,
+   "seconds": 16.0,
+   "requests": 603,
+   "failed": 0,
+   "requests_per_sec": 37.67,
+   "median_ms": 24.644,
+   "p95_ms": 33.831
+  },
+  {
+   "question": "Planner preview",
+   "users": 5,
+   "seconds": 16.0,
+   "requests": 1271,
+   "failed": 0,
+   "requests_per_sec": 79.34,
+   "median_ms": 61.567,
+   "p95_ms": 92.144
+  },
+  {
+   "question": "Planner preview",
+   "users": 10,
+   "seconds": 16.1,
+   "requests": 1265,
+   "failed": 0,
+   "requests_per_sec": 78.75,
+   "median_ms": 125.711,
+   "p95_ms": 173.508
+  },
+  {
+   "question": "Planner preview",
+   "users": 20,
+   "seconds": 16.1,
+   "requests": 1317,
+   "failed": 0,
+   "requests_per_sec": 81.76,
+   "median_ms": 239.715,
+   "p95_ms": 338.485
+  },
+  {
+   "question": "Planner preview",
+   "users": 50,
+   "seconds": 16.2,
+   "requests": 1359,
+   "failed": 0,
+   "requests_per_sec": 83.7,
+   "median_ms": 582.547,
+   "p95_ms": 756.01
+  },
+  {
+   "question": "Planner preview",
+   "users": 80,
+   "seconds": 16.7,
+   "requests": 1406,
+   "failed": 0,
+   "requests_per_sec": 84.28,
+   "median_ms": 934.099,
+   "p95_ms": 1065.97
+  },
+  {
+   "question": "Weekday chart",
+   "users": 1,
+   "seconds": 16.0,
+   "requests": 660,
+   "failed": 0,
+   "requests_per_sec": 41.18,
+   "median_ms": 22.977,
+   "p95_ms": 31.254
+  },
+  {
+   "question": "Weekday chart",
+   "users": 5,
+   "seconds": 16.0,
+   "requests": 1040,
+   "failed": 0,
+   "requests_per_sec": 64.96,
+   "median_ms": 76.494,
+   "p95_ms": 97.461
+  },
+  {
+   "question": "Weekday chart",
+   "users": 10,
+   "seconds": 16.0,
+   "requests": 842,
+   "failed": 0,
+   "requests_per_sec": 52.47,
+   "median_ms": 189.717,
+   "p95_ms": 240.629
+  },
+  {
+   "question": "Weekday chart",
+   "users": 20,
+   "seconds": 16.1,
+   "requests": 817,
+   "failed": 0,
+   "requests_per_sec": 50.73,
+   "median_ms": 392.788,
+   "p95_ms": 486.929
+  },
+  {
+   "question": "Weekday chart",
+   "users": 50,
+   "seconds": 16.7,
+   "requests": 813,
+   "failed": 0,
+   "requests_per_sec": 48.6,
+   "median_ms": 1024.357,
+   "p95_ms": 1198.754
+  },
+  {
+   "question": "Weekday chart",
+   "users": 80,
+   "seconds": 17.3,
+   "requests": 875,
+   "failed": 0,
+   "requests_per_sec": 50.6,
+   "median_ms": 1565.211,
+   "p95_ms": 1720.179
+  }
+ ]
+}

@@ -84,7 +84,8 @@ why some zones run short, then **decide** where to station taxis.
 | Saved views | `api/routers/saved_views.py`, `api/saved_views.py`, `api/filters.py` | the **Views** menu beside the dashboard filters | — |
 | Allocation Planner | `api/routers/plans.py`, logic in `api/planner.py` | `web/src/pages/Planner.tsx`, `web/src/pages/planner/` | `/planner/build`, `/planner/saved` |
 | Users and login | `api/auth.py`, `api/users.py`, `api/mailer.py`, `api/passwords.py`, `api/routers/auth.py`, `api/routers/users.py` | `web/src/pages/Login.tsx`, `web/src/pages/Setup.tsx`, `web/src/pages/admin/Users.tsx` | `/`, `/setup`, `/admin/users` |
-| Administration and Database evaluation | `api/routers/admin.py` | `web/src/pages/Admin.tsx`, `web/src/pages/admin/` | `/admin/health`, `/evaluation/pipeline`, `/evaluation/performance` |
+| Administration (Data health) | `api/routers/admin.py` | `web/src/pages/Admin.tsx`, `web/src/pages/admin/` | `/admin/health` |
+| Performance results | `etl/results.py`, saved runs in `etl/results/` | none: printed in the terminal | — |
 
 **Backend.** Add routes to your router file. A route `@router.get("/busiest")`
 in `flows.py` is served at http://localhost:8000/flows/busiest. Get

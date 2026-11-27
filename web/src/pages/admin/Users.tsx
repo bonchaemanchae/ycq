@@ -123,7 +123,7 @@ export default function Users() {
               {(["analyst", "admin"] as Role[]).map((r) => (
                 <button key={r} type="button" role="radio" aria-checked={role === r}
                         className={role === r ? "on" : ""} onClick={() => setRole(r)}
-                        title={r === "admin" ? "Everything an analyst can do, plus Administration and Database evaluation"
+                        title={r === "admin" ? "Everything a fleet manager can do, plus Administration"
                                              : "Dashboard and Allocation Planner"}>
                   {r === "admin" ? "Admin" : "Fleet manager"}
                 </button>

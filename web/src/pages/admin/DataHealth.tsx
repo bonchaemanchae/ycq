@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { api, del } from "../../api";
 import { n, pct, when, type ImportBatch, type ReconRun } from "./types";
 
@@ -28,7 +27,7 @@ function BothDatabases({ run }: { run: ReconRun | undefined }) {
 // What an administrator checks day to day: four guarantees at the top, each
 // saying how to fix it when it fails, then one row per month (rows read,
 // warned and rejected, the file's checksum, and whether the two databases
-// agree). A month's rejected count links to its rows on Data pipeline.
+// agree). The rejected rows themselves stay in PostgreSQL (rejected_trip).
 export default function DataHealth({ batches, latest }: { batches: ImportBatch[]; latest: Map<string, ReconRun> }) {
   const [orphans, setOrphans] = useState<Orphans | null>(null);
   const [seals, setSeals] = useState<Seals | null>(null);
@@ -168,9 +167,7 @@ export default function DataHealth({ batches, latest }: { batches: ImportBatch[]
                     <td className="num">{n(b.rows_read)}</td>
                     <td className="num">{n(b.rows_warned)} <span className="muted small">{pct(b.rows_warned, b.rows_read)}</span></td>
                     <td className="num">
-                      <Link to={`/evaluation/pipeline?month=${b.month}`} title={`See the ${b.month} rejected rows and their rules`}>
-                        {n(b.rows_rejected)}
-                      </Link>{" "}
+                      {n(b.rows_rejected)}{" "}
                       <span className="muted small">{pct(b.rows_rejected, b.rows_read)}</span>
                     </td>
                     <td>

@@ -118,7 +118,7 @@ def test_the_whole_app_works_as_the_api_role(api_client, db, mongo, make_user):
     manhattan = db.execute("SELECT borough_id FROM borough WHERE name = 'Manhattan'").fetchone()[0]
 
     for path in ("/health", "/zones", "/dashboard/context", "/admin/imports", "/admin/reconciliation",
-                 "/admin/benchmarks", "/admin/load-tests", "/admin/stores", "/admin/users", "/admin/orphaned-views",
+                 "/admin/plan-seals", "/admin/users", "/admin/orphaned-views",
                  "/plans", "/views",
                  "/dashboard?dateFrom=2026-01-01&dateTo=2026-01-31", "/dashboard/weekdays",
                  "/dashboard/series?bucket=hour&dateFrom=2026-01-05&dateTo=2026-01-05",

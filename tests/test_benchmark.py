@@ -15,7 +15,7 @@ from conftest import ROOT, TEST_DB, pg_connect, run_ok
 sys.path.insert(0, str(ROOT / "etl"))
 sys.path.insert(0, str(ROOT))
 import benchmark  # noqa: E402
-from api.routers import admin  # noqa: E402
+import results  # noqa: E402
 
 
 def test_percentile_is_nearest_rank():
@@ -81,10 +81,10 @@ def test_flow_query_in_postgres(pg_store):
 def test_full_run_saves_matching_results_for_all_stores(mongo, db):
     run_ok("etl/benchmark.py", "--runs", "3", "--zone", "1",
            "--day-type", "weekend", "--time-bucket", "night")
-    results = admin.latest_benchmark(db)["results"]
-    hourly = [r for r in results if r["data"] == "hourly"]
-    flow = [r for r in results if r["data"] == "destinations"]
-    dash = [r for r in results if r["data"] == "dashboard"]
+    saved = results.latest_benchmark(db)["results"]
+    hourly = [r for r in saved if results.data_of(r["query_name"]) == "hourly"]
+    flow = [r for r in saved if results.data_of(r["query_name"]) == "destinations"]
+    dash = [r for r in saved if results.data_of(r["query_name"]) == "dashboard"]
     assert len(hourly) == 12                         # 3 stores x 4 questions
     assert len(dash) == 6                            # 3 stores x Q6 and Q7
     assert {r["store"] for r in dash} == set(benchmark.DASHBOARD_STORES)
@@ -92,7 +92,7 @@ def test_full_run_saves_matching_results_for_all_stores(mongo, db):
     assert {r["store"] for r in hourly} == set(benchmark.HOURLY_STORES)
     assert {r["store"] for r in flow} == {"postgres", "mongo_collection"}
     assert {r["query_name"] for r in flow} == {benchmark.FLOW_QUERY}
-    assert all(r["runs"] == 3 and r["median_ms"] > 0 and r["plan_output"] for r in results)
+    assert all(r["runs"] == 3 and r["median_ms"] > 0 and r["plan_summary"] for r in saved)
     assert all(r["storage_bytes"] and r["load_ms"] for r in hourly)
     assert all(r["load_ms"] is None for r in flow)   # the app's own stores, not rebuilt
 

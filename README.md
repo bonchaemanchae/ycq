@@ -12,78 +12,9 @@ INF2003 Database Systems group project, team 24.
 > Plans are built from past completed trips. They are planning scenarios, not
 > live taxi positions, unmet passenger demand or guaranteed earnings.
 
-## Features
-
-**Analytical Dashboard** (served by MongoDB)
-
-- **Zone maps:** filter by dates, days of the week, hours and boroughs; totals
-  for pickups, taxi balance, fare and trip length; a demand map and a shortages
-  map (zones where pickups outnumber drop-offs); every zone ranked; compare up
-  to three zones side by side
-- **Flow Explorer:** click a zone to see the top 10 places its trips go, by
-  month, weekday or weekend, and time band
-- **Daily trends:** pickups per day or hour with a moving average, and the
-  unusual days, at least 30% above or below a normal day of the same weekday
-- **Saved views:** save, open, rename and delete a dashboard view
-
-**Allocation Planner** (served by PostgreSQL)
-
-- **Build a plan:** choose a day, hours, fleet size and boroughs; the planner
-  ranks the zones for each hour and splits the fleet between them
-- **Edit and save:** change any number; a plan saves only when every hour adds
-  up to the fleet, and every save is a new version
-- **Saved plans:** each version is sealed by a hash chain; compare two
-  versions, rename or delete a plan
-
-**Administration** (admins only)
-
-- **User management:** invite people by email as Fleet manager or Admin; they
-  set their own password from a one-time link; disable accounts
-- **Data health:** whether every month loaded, whether both databases agree,
-  whether every saved view has an owner, and whether any saved plan was altered
-
-**Database evaluation** (admins only)
-
-- **Data pipeline:** how each row is checked, stored in PostgreSQL and
-  summarised into MongoDB, with the rejected rows and the rule that caught each
-- **Performance:** speed, size and throughput of both databases on the app's
-  own queries
-
-Admins also see on every page which collection answered each chart and how
-long it took, the planner's scoring details and its PostgreSQL vs MongoDB
-check. Fleet managers see only the answers.
-
-## How it works
-
-```
-TLC trip files ──> loader ──> PostgreSQL ──> MongoDB
-                  (checks,     (trips, zones,  (summaries for each
-                   imports,     users, plans)   page, saved views)
-                   summarises)       │              │
-                                     └──── api ─────┘ ──> website
-```
-
-PostgreSQL keeps every trip, zone, user and saved plan, and enforces the rules
-itself: constraints, triggers and row-level security. MongoDB holds summaries
-built from PostgreSQL for the pages that are read most, plus the saved views.
-After every load the two are compared number by number.
-
-`docker compose up` starts six containers:
-
-| Container | What it is | Address |
-|---|---|---|
-| `postgres` | PostgreSQL 16 with PostGIS 3.4 | `localhost:5432` |
-| `mongo` | MongoDB 8.0 | `localhost:27017` |
-| `loader` | Downloads the TLC files, builds the schema, imports each month, builds the summaries, fills MongoDB, checks both databases agree, then exits | `docker compose logs loader` |
-| `api` | FastAPI backend, connecting with its own restricted database logins | http://localhost:8000/docs |
-| `web` | React website | http://localhost:8080 |
-| `mailpit` | Test mail server that catches the invitation emails | http://localhost:8025 |
-
-**Built with:** Python 3.12, Polars, psycopg 3, PyMongo, FastAPI, Argon2id
-password hashing; React 18, TypeScript, Vite, Leaflet, Recharts; Docker
-Compose.
-
-More detail: [docs/database.md](docs/database.md).
+**This README is the user manual.** To set up and run the app, follow
+[Quick start](#quick-start), then [Configuration](#configuration) for the
+settings and [Using the app](#using-the-app) for what to do once it's running.
 
 ## Quick start
 
@@ -183,6 +114,72 @@ Changing a password in `.env` updates the account on the next
 6. **Admins:** invite or disable users under **User management**, and check
    **Data health** after loading data.
 
+## Features
+
+**Analytical Dashboard** (served by MongoDB)
+
+- **Zone maps:** filter by dates, days of the week, hours and boroughs; totals
+  for pickups, taxi balance, fare and trip length; a demand map and a shortages
+  map (zones where pickups outnumber drop-offs); every zone ranked; compare up
+  to three zones side by side
+- **Flow Explorer:** click a zone to see the top 10 places its trips go, by
+  month, weekday or weekend, and time band
+- **Daily trends:** pickups per day or hour with a moving average, and the
+  unusual days, at least 30% above or below a normal day of the same weekday
+- **Saved views:** save, open, rename and delete a dashboard view
+
+**Allocation Planner** (served by PostgreSQL)
+
+- **Build a plan:** choose a day, hours, fleet size and boroughs; the planner
+  ranks the zones for each hour and splits the fleet between them
+- **Edit and save:** change any number; a plan saves only when every hour adds
+  up to the fleet, and every save is a new version
+- **Saved plans:** each version is sealed by a hash chain; compare two
+  versions, rename or delete a plan
+
+**Administration** (admins only)
+
+- **User management:** invite people by email as Fleet manager or Admin; they
+  set their own password from a one-time link; disable accounts
+- **Data health:** whether every month loaded, whether both databases agree,
+  whether every saved view has an owner, and whether any saved plan was altered
+
+Admins also see on every page which collection answered each chart and how
+long it took, the planner's scoring details and its PostgreSQL vs MongoDB
+check. Fleet managers see only the answers.
+
+## How it works
+
+```
+TLC trip files ──> loader ──> PostgreSQL ──> MongoDB
+                  (checks,     (trips, zones,  (summaries for each
+                   imports,     users, plans)   page, saved views)
+                   summarises)       │              │
+                                     └──── api ─────┘ ──> website
+```
+
+PostgreSQL keeps every trip, zone, user and saved plan, and enforces the rules
+itself: constraints, triggers and row-level security. MongoDB holds summaries
+built from PostgreSQL for the pages that are read most, plus the saved views.
+After every load the two are compared number by number.
+
+`docker compose up` starts six containers:
+
+| Container | What it is | Address |
+|---|---|---|
+| `postgres` | PostgreSQL 16 with PostGIS 3.4 | `localhost:5432` |
+| `mongo` | MongoDB 8.0 | `localhost:27017` |
+| `loader` | Downloads the TLC files, builds the schema, imports each month, builds the summaries, fills MongoDB, checks both databases agree, then exits | `docker compose logs loader` |
+| `api` | FastAPI backend, connecting with its own restricted database logins | http://localhost:8000/docs |
+| `web` | React website | http://localhost:8080 |
+| `mailpit` | Test mail server that catches the invitation emails | http://localhost:8025 |
+
+**Built with:** Python 3.12, Polars, psycopg 3, PyMongo, FastAPI, Argon2id
+password hashing; React 18, TypeScript, Vite, Leaflet, Recharts; Docker
+Compose.
+
+More detail: [docs/database.md](docs/database.md).
+
 ## Testing
 
 ```bash
@@ -190,7 +187,7 @@ docker compose build loader          # picks up changed tests
 docker compose run --rm loader pytest tests
 ```
 
-377 tests run against separate `ycq_test` databases in the same containers,
+375 tests run against separate `ycq_test` databases in the same containers,
 so your real data is never touched. They load small hand-made files with the
 real scripts.
 
@@ -205,20 +202,39 @@ real scripts.
 
 ## Performance evaluation
 
-Four tools measure the design. All of them only read data. Run them after
-every month is loaded:
+Results are printed in the terminal, not shown in the website. Run these
+after the data has loaded (Quick start step 3).
 
-| Tool | What it measures | Command | Results |
+**1. See our results** (a few seconds, nothing is rerun):
+
+```bash
+docker compose run --rm loader python etl/results.py
+docker compose run --rm loader python etl/results.py --full    # every number of users in the load test
+```
+
+This prints the runs behind our presentation, saved in `etl/results/`: each
+query's median time in every store with how the store read the data, the
+storage sizes and load times, and each feature's throughput. After you rerun
+the tests below, it prints your latest run beside ours.
+
+**2. Rerun them on your machine.** All four only read data:
+
+| Tool | What it measures | Command | Takes |
 |---|---|---|---|
-| Speed benchmark | 7 queries the app runs, 50 times each, on the same data in PostgreSQL, a MongoDB collection, a MongoDB time-series collection and the pre-summed collections. Median and 95th percentile, storage size, load time and each query plan. Saved only if every store returns the same answers. Takes a few minutes | `docker compose run --rm loader python etl/benchmark.py` | Database evaluation → Performance |
-| Load test | Requests a second, response times and failures for five features, with 1, 5, 10, 20, 50 and 80 users at once through the real API and logins. Takes about 10 minutes | `docker compose run --rm loader python etl/load_test.py` | Database evaluation → Performance, Throughput |
-| Planner backtest | Plans built from January and February only, scored on March against "busiest zones" and random zones | `docker compose run --rm loader python etl/backtest_planner.py` | Printed in the terminal |
-| Design evidence | Why each store is laid out as it is: bucket counts, which collection answers each dashboard question, and the query plans. Takes about a minute | `docker compose run --rm loader python etl/evidence.py` | Printed in the terminal |
+| Speed benchmark | 7 queries the app runs, 50 times each, on the same data in PostgreSQL, a MongoDB collection, a MongoDB time-series collection and the pre-summed collections. Median and 95th percentile, storage size, load time and each query plan. Saved only if every store returns the same answers | `docker compose run --rm loader python etl/benchmark.py` | a few minutes |
+| Load test | Requests a second, response times and failures for five features, with 1, 5, 10, 20, 50 and 80 users at once through the real API and logins | `docker compose run --rm loader python etl/load_test.py` | about 10 minutes |
+| Planner backtest | Plans built from January and February only, scored on March against "busiest zones" and random zones | `docker compose run --rm loader python etl/backtest_planner.py` | a few minutes |
+| Design evidence | Why each store is laid out as it is: bucket counts, which collection answers each dashboard question, and the query plans | `docker compose run --rm loader python etl/evidence.py` | about a minute |
 
-Run `docker compose build loader` first if the scripts changed. The load test
-logs in as `analyst1@ycq.local`, so that account needs its password in `.env`.
-The API and the load test share one machine, so compare its ratios rather than
-the absolute numbers.
+Each prints its results as it runs. The load test needs the app running and
+`YCQ_ANALYST1_PASSWORD` in `.env`, because it logs in as `analyst1@ycq.local`.
+
+**3. What to expect on another machine.** Times depend on the computer, so
+yours will differ from ours; compare the ratios instead. Which store wins each
+query, how much smaller each store is and which feature handles the most
+requests should hold. Some results don't depend on the machine and should
+match exactly: every store returns the same answers, no request fails, and
+the backtest's percentages.
 
 **Headline results** (January to March 2026):
 
@@ -257,7 +273,8 @@ The full rules and per-rule counts: [docs/data.md](docs/data.md).
 api/        FastAPI backend: one router per feature, the planner, login and users
 web/        React and TypeScript website: one folder per page, shared components
 sql/        PostgreSQL schema, applied in number order
-etl/        loader scripts, plus benchmark, load_test, backtest_planner and evidence
+etl/        loader scripts, plus benchmark, load_test, backtest_planner, evidence and
+            results (prints our saved results, kept in etl/results/)
 scripts/    data download with checksum check, default accounts
 tests/      pytest suite, using its own ycq_test databases
 docs/       development guide, data rules and database design notes

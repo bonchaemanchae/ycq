@@ -46,15 +46,6 @@ const NAV: NavGroup[] = [
       { to: "/admin/health", label: "Data health" },
     ],
   },
-  // Evidence for the database design, kept apart from the day-to-day pages.
-  {
-    base: "/evaluation", label: "Database evaluation", admin: true,
-    icon: icon("M4 20h16M6 16l4-5 3 3 5-7"),
-    items: [
-      { to: "/evaluation/pipeline", label: "Data pipeline" },
-      { to: "/evaluation/performance", label: "Performance" },
-    ],
-  },
 ];
 
 type Health = { postgres: boolean; mongodb: boolean; months_loaded: string[] };
@@ -172,8 +163,7 @@ export default function App() {
             <Routes>
               <Route path="/dashboard/:tab?" element={<Dashboard />} />
               <Route path="/planner/:tab?" element={<Planner />} />
-              {admin && <Route path="/admin/:section?" element={<Admin area="admin" />} />}
-              {admin && <Route path="/evaluation/:section?" element={<Admin area="evaluation" />} />}
+              {admin && <Route path="/admin/:section?" element={<Admin />} />}
               {/* the Flow Explorer is now a panel on the dashboard and planner maps */}
               <Route path="/flows" element={<Navigate to="/dashboard/overview" replace />} />
               <Route path="*" element={<Navigate to="/dashboard/overview" replace />} />
