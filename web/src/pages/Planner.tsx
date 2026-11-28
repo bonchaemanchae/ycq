@@ -562,7 +562,6 @@ export default function Planner() {
     setSaving(false);
     setMessage({ kind: "ok", text: `Saved as v${version_no} of “${name}”` });
   });
-  const planName = plans.find((p) => p.allocation_plan_id === planId)?.name;
 
   const zones = useApi<Zone[]>("/zones");
   const zoneNames = useMemo(() => new Map((zones.data ?? []).map((z) => [z.location_id, z.zone_name])), [zones.data]);
@@ -584,7 +583,6 @@ export default function Planner() {
     }
     return out;
   }, [scored, week.tripSec]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const shortHours = hours.filter((h) => need[h] !== null && need[h]! > fleet);
   // the busiest hour's demand: the one number the fleet is compared with
   const peakHour = hours.reduce<number | null>((best, h) => (need[h] !== null && (best === null || need[h]! > need[best]!) ? h : best), null);
   const peak = peakHour === null ? null : { taxis: need[peakHour]!, hour: hourLabel(peakHour) };
